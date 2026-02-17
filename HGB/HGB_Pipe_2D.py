@@ -35,11 +35,11 @@ from sklearn.preprocessing import StandardScaler
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "2D_attempt_hist_2"
+DATASET_VERSION = "hist_old_features"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_2D_hist.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_2D_hist_filtered.csv"
-y_path = f"./pipeline_saved_processes/dataframes/y_2D_hist.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
+y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}.pkl"
 
 # checks if X and y already exists, and if not, they get computed
@@ -52,7 +52,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
     import glob
 
-    collection_path = "./pipeline_inputs/collection_2D"
+    collection_path = "./pipeline_inputs/collection"
     fps = 30
     rescale_points = ("tr", "tl")
     rescale_distance = 0.64
@@ -192,7 +192,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                embedding_length=list(range(-15, 16, 3))
                                )
 
-    y = labels(labels_path="./pipeline_inputs/labels_2D",
+    y = labels(labels_path="./pipeline_inputs/labels",
                )
 
     X, y = drop_non_analyzed_videos(X=X, y=y)

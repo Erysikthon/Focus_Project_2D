@@ -243,9 +243,9 @@ if not os.path.isfile(model_path):
     X_train = X_train.reset_index(drop=True)
     X_test = X_test.reset_index(drop=True)
 
-    # Ravel
-    y_train = y_train.values.ravel()
-    y_test = y_test.values.ravel()
+    # Convert to numpy and ravel (handle PyArrow types)
+    y_train = np.array(y_train.values).ravel()
+    y_test = np.array(y_test.values).ravel()
 
     # Calculate class weights for multi-class imbalanced data
     unique, counts = np.unique(y_train, return_counts=True)
@@ -269,9 +269,9 @@ if not os.path.isfile(model_path):
     param_grid = {
         'classifier__max_iter': [125],
         'classifier__max_depth': [3],
-        'classifier__learning_rate': [0.05, 0.1],
+        'classifier__learning_rate': [0.05],
         'classifier__min_samples_leaf': [80], #the higher, the less overfitting, 80
-        'classifier__l2_regularization': [0.1, 0.5],
+        'classifier__l2_regularization': [0.1],
         'classifier__max_bins': [255],
         'classifier__max_leaf_nodes': [31]  # Limits tree complexity, 63
 

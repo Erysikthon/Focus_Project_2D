@@ -89,7 +89,7 @@ class RandomizedDataset(Dataset):
                     break
 
         X_tensor = torch.from_numpy((X/255).astype(np.float32))
-        X_tensor.transpose_(0,2).transpose_(1,2)
+        X_tensor = X_tensor.permute(2, 0, 1).unsqueeze(0)
 
         y_raw = pd.read_csv(self.labels_folder + "/" + file_name + ".csv").iloc[int(first_n + (self.r - 1)/2 ): int(first_n + self.s + (self.r - 1)/2 ), :].reset_index(drop = True)
         y = pd.Series(np.zeros(self.s, dtype = int)-1)
@@ -144,6 +144,7 @@ class SingleVideoDataset(Dataset):
         self.behaviors = behaviors
         self.s = s
         self.r = r
+        self.y_true_total = pd.read_csv(self.labels_folder + "/" + self.file_name + ".csv")
 
         print(colors.GREEN + f"{identity} initialized:\n" +
               colors.CYAN +"   video = " + colors.ENDC + f"{self.file_name}\n"+
@@ -180,11 +181,11 @@ class SingleVideoDataset(Dataset):
                     break
 
         X_tensor = torch.from_numpy((X/255).astype(np.float32))
-        X_tensor.transpose_(0,2).transpose_(1,2)
+        X_tensor = X_tensor.permute(2, 0, 1).unsqueeze(0)
 
         y_raw = pd.read_csv(self.labels_folder + "/" + self.file_name + ".csv").iloc[int(index * self.s + (self.r - 1)/2) : int((index + 1) * (self.s) + (self.r - 1)/2)].reset_index(drop = True)
-        y = pd.Series(np.zeros(self.s, dtype = int)-1)
-        print(y_raw.shape)
+        y = pd.Series(np.zeros(self.s, dtype = int) - 1)
+
         for behavior in self.behaviors:
             y[y_raw[behavior] == 1] = self.behaviors[behavior]
         if (y == -1).any():
@@ -196,4 +197,59 @@ class SingleVideoDataset(Dataset):
 
         cv2.destroyAllWindows()
         return X_tensor, y_tensor
+
+class SingleVideoDatasetCollection(SingleVideoDataset):
+    def __init__(self, 
+                 features_folder : str, 
+                 labels_folder : str,
+                 file_names : list[str], 
+                 behaviors : dict[str,int],
+                 s : int,
+                 r : int,
+                 identity : str = "single video dataset"
+                 ):
+        """
+        Docstring for __init__
         
+        :param self: Description
+        :param features_folder: Description
+        :type features_folder: str
+        :param labels_folder: Description
+        :type labels_folder: str
+        :param file_names: Description
+        :type file_names: list[str]
+        :param behaviors: Description
+        :type behaviors: dict[str, int]
+        :param s: Snippet size
+        :type s: int
+        :param r: Receptive field
+        :type r: int
+        :param n: How many samples per video
+        :type n: int
+        :param random_state: your random state
+        :type random_state: Any
+        """
+
+        self.features_folder = features_folder
+        self.labels_folder = labels_folder
+        self.file_names = file_names
+        self.behaviors = behaviors
+        self.s = s
+        self.r = r
+        self.collection = []
+        for file_name in file_names:
+            self.collection.append(SingleVideoDataset(features_folder, labels_folder, file_name, behaviors, s, r))
+
+    def __len__(self):
+        length = 0
+        for item in self.collection:
+            length += len(item)
+        return length
+
+    def __getitem__(self, index):
+        for item in self.collection:
+            if index < len(item):
+                return item[index]
+            index -= len(item)
+
+        raise IndexError("Index out of range")

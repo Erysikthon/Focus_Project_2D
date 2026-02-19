@@ -6,8 +6,8 @@ import matplotlib as mpl
 import numpy as np
 from sklearn.metrics import confusion_matrix
 
-def kernel_heatmap(conv_layer : torch.nn.modules.Conv1d, output_path : str, n_kernels):
-
+def kernel_heatmap_2d(conv_layer : torch.nn.modules.Conv1d, output_path : str, n_kernels):
+    
     kernels = conv_layer.weight.detach().cpu()
 
     y_max = n_kernels//6
@@ -62,3 +62,57 @@ def plot_confusion_matrix(y_true, y_pred, behaviors : dict, output_path : str):
         plt.tight_layout()
         plt.savefig(output_path, dpi=300, bbox_inches='tight')
         plt.close()
+
+
+def kernel_heatmap_3d(
+    conv_layer: torch.nn.Conv3d,
+    output_path: str,
+    kernel_number: int,
+    channel: int = 0,
+):
+    """
+    Visualize depth slices of a Conv3D kernel as 2D heatmaps.
+
+    Args:
+        conv_layer: Conv3d layer
+        output_path: Path to save the figure
+        kernel_number: Output channel index
+        channel: Input channel index to visualize
+    """
+
+    weights = conv_layer.weight.detach().cpu()
+
+    if kernel_number >= weights.shape[0]:
+        raise ValueError("kernel_number out of range")
+
+    kernel = weights[kernel_number, channel]  # (D, H, W)
+    depth = kernel.shape[0]
+
+    cols = 3
+    rows = math.ceil(depth / cols)
+
+    fig, axes = plt.subplots(rows, cols, figsize=(6 * cols, 6 * rows))
+    axes = axes.flatten()
+
+    fig.suptitle(
+        f"Conv3D kernel {kernel_number}, input channel {channel}",
+        fontsize=18
+    )
+
+    for i in range(depth):
+        sns.heatmap(
+            kernel[i],
+            ax=axes[i],
+            cmap="viridis",
+            center=0
+        )
+        axes[i].set_title(f"Depth slice {i}")
+        axes[i].axis("off")
+
+    # Remove unused subplots
+    for i in range(depth, len(axes)):
+        axes[i].remove()
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=200)
+    plt.close(fig)

@@ -207,12 +207,13 @@ else:
 
 # PyTorch Dataset class for sequences
 class SequenceDataset(Dataset):
-    def __init__(self, X, y, sequence_length=30):
+    def __init__(self, X, y, sequence_length=30, stride=10):
         """
         Args:
             X: DataFrame with multi-index (video_id, frame)
             y: DataFrame with multi-index (video_id, frame)
             sequence_length: Number of frames in each sequence
+            stride: Step size between sequences (default 10 to reduce memory)
         """
         self.sequence_length = sequence_length
         self.sequences = []
@@ -223,8 +224,8 @@ class SequenceDataset(Dataset):
             video_X = X.loc[video_id].values
             video_y = y.loc[video_id].values.ravel()
 
-            # Create overlapping sequences
-            for i in range(len(video_X) - sequence_length + 1):
+            # Create sequences with stride to reduce memory usage
+            for i in range(0, len(video_X) - sequence_length + 1, stride):
                 seq = video_X[i:i + sequence_length]
                 label = video_y[i + sequence_length - 1]  # Label is the last frame's behavior
                 self.sequences.append(seq)
@@ -232,6 +233,7 @@ class SequenceDataset(Dataset):
 
         self.sequences = torch.FloatTensor(np.array(self.sequences))
         self.labels = torch.LongTensor(np.array(self.labels).astype(np.int64))
+        print(f"Created {len(self.sequences)} sequences (stride={stride})")
 
     def __len__(self):
         return len(self.sequences)
@@ -241,7 +243,7 @@ class SequenceDataset(Dataset):
 
 # LSTM Neural Network Architecture
 class LSTMClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.3):
+    def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
         super(LSTMClassifier, self).__init__()
         self.hidden_size = hidden_size
         self.num_layers = num_layers
@@ -257,6 +259,7 @@ class LSTMClassifier(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Sequential(
             nn.Linear(hidden_size, hidden_size // 2),
+            nn.BatchNorm1d(hidden_size // 2),
             nn.ReLU(),
             nn.Dropout(dropout),
             nn.Linear(hidden_size // 2, num_classes)
@@ -319,15 +322,24 @@ def evaluate(model, dataloader, device):
 
 if not os.path.isfile(model_path):
 
-    # Split data
-    X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=10, random_state=20)
+    # Split data (dynamically set test_videos based on available data)
+    n_videos = X.index.get_level_values("video_id").nunique()
+    test_videos = max(1, int(n_videos * 0.2))
+    print(f"Total videos: {n_videos}, Test videos: {test_videos}, Train videos: {n_videos - test_videos}")
+    X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=test_videos, random_state=20)
 
     # Encode string labels to integers
     label_encoder = LabelEncoder()
-    y_train_encoded = y_train.copy()
-    y_test_encoded = y_test.copy()
-    y_train_encoded.iloc[:, 0] = label_encoder.fit_transform(y_train.values.ravel())
-    y_test_encoded.iloc[:, 0] = label_encoder.transform(y_test.values.ravel())
+    y_train_encoded = pd.DataFrame(
+        label_encoder.fit_transform(y_train.values.ravel()),
+        index=y_train.index,
+        columns=y_train.columns
+    )
+    y_test_encoded = pd.DataFrame(
+        label_encoder.transform(y_test.values.ravel()),
+        index=y_test.index,
+        columns=y_test.columns
+    )
 
     # Save label encoder
     import joblib
@@ -361,23 +373,25 @@ if not os.path.isfile(model_path):
     # Save scaler
     joblib.dump(scaler, scaler_path)
 
-    # Create sequence datasets
+    # Create sequence datasets with stride to reduce memory usage
     SEQUENCE_LENGTH = 30  # Use 30 frames (1 second at 30 fps)
-    print(f"Creating sequences with length {SEQUENCE_LENGTH}...")
-    train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH)
-    test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH)
+    STRIDE = 10  # Step size between sequences (reduces memory by 3x)
+    print(f"Creating sequences with length {SEQUENCE_LENGTH} and stride {STRIDE}...")
+    train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
+    test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
 
-    print(f"Created {len(train_dataset)} training sequences and {len(test_dataset)} test sequences")
+    print(f"Total training sequences: {len(train_dataset)}, test sequences: {len(test_dataset)}")
 
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    # Reduce batch size for memory efficiency
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=0)
 
     # Initialize model
     device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     input_size = X_train.shape[1]
-    hidden_size = 128  # LSTM hidden size
+    hidden_size = 64   # Reduced LSTM hidden size for memory efficiency
     num_layers = 2     # Number of LSTM layers
     num_classes = len(unique)
 
@@ -386,7 +400,7 @@ if not os.path.isfile(model_path):
         hidden_size=hidden_size,
         num_layers=num_layers,
         num_classes=num_classes,
-        dropout=0.3
+        dropout=0.5
     ).to(device)
 
     print(f"Model architecture:\n{model}")
@@ -394,15 +408,16 @@ if not os.path.isfile(model_path):
 
     # Weighted loss for imbalanced classes
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    criterion = nn.CrossEntropyLoss(weight=weight_tensor)
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
+    optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3, verbose=True)
 
     # Training loop
     num_epochs = 100
     best_f1 = 0.0
-    patience = 15
+    patience = 10
     patience_counter = 0
+    min_delta = 0.001  # Minimum improvement to reset patience
 
     for epoch in range(num_epochs):
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
@@ -418,8 +433,8 @@ if not os.path.isfile(model_path):
               f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, "
               f"Test Acc: {test_acc:.2f}%, Test F1: {test_f1:.4f}")
 
-        # Early stopping
-        if test_f1 > best_f1:
+        # Early stopping with minimum delta
+        if test_f1 > best_f1 + min_delta:
             best_f1 = test_f1
             torch.save({
                 'model_state_dict': model.state_dict(),
@@ -463,7 +478,7 @@ else:
         hidden_size=hidden_size,
         num_layers=num_layers,
         num_classes=num_classes,
-        dropout=0.3
+        dropout=0.5
     ).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
 
@@ -478,10 +493,16 @@ else:
 
     # Load label encoder and encode labels
     label_encoder = joblib.load(label_encoder_path)
-    y_train_encoded = y_train.copy()
-    y_test_encoded = y_test.copy()
-    y_train_encoded.iloc[:, 0] = label_encoder.transform(y_train.values.ravel())
-    y_test_encoded.iloc[:, 0] = label_encoder.transform(y_test.values.ravel())
+    y_train_encoded = pd.DataFrame(
+        label_encoder.transform(y_train.values.ravel()),
+        index=y_train.index,
+        columns=y_train.columns
+    )
+    y_test_encoded = pd.DataFrame(
+        label_encoder.transform(y_test.values.ravel()),
+        index=y_test.index,
+        columns=y_test.columns
+    )
 
     # Load scaler and scale data
     scaler = joblib.load(scaler_path)
@@ -496,11 +517,12 @@ else:
         columns=X_test.columns
     )
 
-    # Create sequence datasets
-    train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH)
-    test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH)
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+    # Create sequence datasets with stride
+    STRIDE = 10  # Match training stride
+    train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
+    test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=0)
 
     print(f"Loaded model from {model_path}")
     print(f"Using device: {device}")

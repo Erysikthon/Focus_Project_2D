@@ -24,16 +24,18 @@ def kernel_heatmap_2d(conv_layer : torch.nn.modules.Conv1d, output_path : str, n
 
     plt.savefig(output_path)
 
-def loss_over_epochs_lineplot(total_loss,output_path : str):
-    epoch = len(total_loss)
+def loss_over_epochs_lineplot(train_loss, test_loss,output_path : str):
+    epoch = len(train_loss)
     figure = plt.figure(figsize = (10,6))
-    sns.lineplot(y = total_loss, x = np.arange(0,epoch))
+    plt.plot(train_loss, label = "Train loss")
+    plt.plot(test_loss, label = "Test loss")
     plt.title(f"loss vs epochs")
+    plt.legend()
     plt.xlabel("epoch")
     plt.ylabel("loss")
     plt.savefig(output_path)
     plt.close(figure)
-    
+
 def plot_confusion_matrix(y_true, y_pred, behaviors : dict, output_path : str):
         
         behavior_numbers = list(behaviors.values())
@@ -104,7 +106,8 @@ def kernel_heatmap_3d(
             kernel[i],
             ax=axes[i],
             cmap="viridis",
-            center=0
+            center=0,
+            vmin = -0.25, vmax = 0.25
         )
         axes[i].set_title(f"Depth slice {i}")
         axes[i].axis("off")

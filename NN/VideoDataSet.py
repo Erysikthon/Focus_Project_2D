@@ -97,7 +97,7 @@ class RandomizedDataset(Dataset):
             y[y_raw[behavior] == 1] = self.behaviors[behavior]
         if (y == -1).any():
             raise KeyError(f"{file_name} presents a behavior not specified in the behavior list: {self.behaviors}")
-        y_tensor = torch.from_numpy(y.to_numpy())
+        y_tensor = torch.from_numpy(y.to_numpy(copy = True))
 
         if debug: 
             print(X_tensor, y_tensor)
@@ -145,13 +145,6 @@ class SingleVideoDataset(Dataset):
         self.s = s
         self.r = r
         self.y_true_total = pd.read_csv(self.labels_folder + "/" + self.file_name + ".csv")
-
-        print(colors.GREEN + f"{identity} initialized:\n" +
-              colors.CYAN +"   video = " + colors.ENDC + f"{self.file_name}\n"+
-              colors.CYAN +"   behaviors = " + colors.ENDC + f"{self.behaviors}\n"+
-              colors.CYAN +"   X shape = " + colors.ENDC + f"{self.s + self.r -1}\n"+
-              colors.CYAN +"   y shape = " + colors.ENDC + f"{self.s}\n")
-
         video_path = self.features_folder + "/" + file_name + ".mp4"
 
         self.cap = cv2.VideoCapture(video_path)
@@ -161,6 +154,14 @@ class SingleVideoDataset(Dataset):
         self.width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self.fps = self.cap.get(cv2.CAP_PROP_FPS)
+
+        print(colors.GREEN + f"{identity} initialized:\n" +
+              colors.CYAN +"   video = " + colors.ENDC + f"{self.file_name}\n"+
+              colors.CYAN +"   behaviors = " + colors.ENDC + f"{self.behaviors}\n"+
+              colors.CYAN +"   X shape = " + colors.ENDC + f"{self.s + self.r -1}\n"+
+              colors.CYAN +"   y shape = " + colors.ENDC + f"{self.s}\n"+
+              colors.CYAN +"   (R-1)/2 = " + colors.ENDC + f"{int((((self.r - 1)/2)))}\n"+
+              colors.CYAN +"   range (end not included) = " + colors.ENDC + f"[0 ; {self.get_range()}]\n")
 
     def __len__(self):
         return (self.total_frames - (self.r - 1)) // self.s
@@ -190,13 +191,16 @@ class SingleVideoDataset(Dataset):
             y[y_raw[behavior] == 1] = self.behaviors[behavior]
         if (y == -1).any():
             raise KeyError(f"{self.file_name} presents a behavior not specified in the behavior list: {self.behaviors}")
-        y_tensor = torch.from_numpy(y.to_numpy())
+        y_tensor = torch.from_numpy(y.to_numpy(copy = True))
 
         if debug: 
             print(X_tensor, y_tensor)
 
         cv2.destroyAllWindows()
         return X_tensor, y_tensor
+    
+    def get_range(self):
+        return int(self.__len__()*self.s)
 
 class SingleVideoDatasetCollection(SingleVideoDataset):
     def __init__(self, 
@@ -251,5 +255,4 @@ class SingleVideoDatasetCollection(SingleVideoDataset):
             if index < len(item):
                 return item[index]
             index -= len(item)
-
         raise IndexError("Index out of range")

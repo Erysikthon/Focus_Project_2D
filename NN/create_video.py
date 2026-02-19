@@ -1,6 +1,7 @@
 import cv2
 import pandas as pd
-
+from tqdm import tqdm
+from utilities import terminal_colors as colors
 
 
 def annotate_video_with_predictions(video_path, predictions, output_path, frame_offset=0, true_labels=None):
@@ -31,62 +32,96 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
     print(f"Total predictions: {len(predictions)}")
     if true_labels is not None:
         print(f"Total true labels: {len(true_labels)}")
+    with tqdm(desc = colors.CYAN +"    test" + colors.ENDC, total = 180, ascii = True) as pbar:
+        while cap.isOpened():
+            ret, frame = cap.read()
 
-    while cap.isOpened():
-        ret, frame = cap.read()
+            if not ret:
+                break
 
-        if not ret:
-            break
+            # Get prediction for current frame
+            if frame_idx >= frame_offset and pred_idx < len(predictions):
+                prediction = predictions.iloc[pred_idx, 0]
 
-        # Get prediction for current frame
-        if frame_idx >= frame_offset and pred_idx < len(predictions):
-            prediction = predictions.iloc[pred_idx,1]
+                # Configure text appearance (adapted for 200x200)
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 0.4
+                thickness = 1
 
-            # Configure text appearance
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 1.0
-            thickness = 2
+                # Determine color based on match with true label
+                if true_labels is not None and pred_idx < len(true_labels):
+                    true_label = true_labels.iloc[pred_idx, 0]
+                    color = (0, 255, 0) if prediction == true_label else (0, 0, 255)
+                else:
+                    color = (0, 255, 0)
 
-            # Determine color based on match with true label
-            if true_labels is not None and pred_idx < len(true_labels):
-                true_label = true_labels.iloc[pred_idx,1]
-                color = (0, 255, 0) if prediction == true_label else (0, 0, 255)
+                # Add prediction text
+                pred_text = f"Prediction: {prediction}"
+                (text_width, text_height), _ = cv2.getTextSize(
+                    pred_text, font, font_scale, thickness
+                )
+                cv2.rectangle(
+                    frame, (5, 5), (5 + text_width, 5 + text_height), (0, 0, 0), -1
+                )
+                cv2.putText(
+                    frame, pred_text, (5, 5 + text_height),
+                    font, font_scale, color, thickness
+                )
+
+                # Add true label if available
+                if true_labels is not None and pred_idx < len(true_labels):
+                    true_text = f"True: {true_label}"
+                    (text_width3, text_height3), _ = cv2.getTextSize(
+                        true_text, font, font_scale, thickness
+                    )
+                    cv2.rectangle(
+                        frame,
+                        (5, 5 + text_height),
+                        (5 + text_width3, 5 + text_height + text_height3),
+                        (0, 0, 0),
+                        -1,
+                    )
+                    cv2.putText(
+                        frame, true_text,
+                        (5, 5 + text_height + text_height3),
+                        font, font_scale, (0, 255, 0), thickness
+                    )
+
+                # Frame number (bottom-left, adapted for 200x200)
+                frame_text = f"Frame: {frame_idx}"
+                (text_width2, text_height2), _ = cv2.getTextSize(
+                    frame_text, font, 0.4, 1
+                )
+                cv2.rectangle(
+                    frame,
+                    (5, 200 - text_height2 - 5),
+                    (5 + text_width2, 200 - 5),
+                    (0, 0, 0),
+                    -1,
+                )
+                cv2.putText(
+                    frame, frame_text,
+                    (5, 200 - 5),
+                    font, 0.35, (255, 255, 255), 1
+                )
+
+                pred_idx += 1
             else:
-                color = (0, 255, 0)
+                # No prediction available for this frame (adapted for 200x200)
+                label_text = "No prediction"
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                cv2.putText(
+                    frame, label_text,
+                    (10, 25),
+                    font, 0.6, (0, 0, 255), 1
+                )
 
-            # Add prediction text
-            pred_text = f"Prediction: {prediction}"
-            (text_width, text_height), _ = cv2.getTextSize(pred_text, font, font_scale, thickness)
-            cv2.rectangle(frame, (10, 10), (20 + text_width, 30 + text_height), (0, 0, 0), -1)
-            cv2.putText(frame, pred_text, (15, 35), font, font_scale, color, thickness)
+            # Write frame to output
+            out.write(frame)
+            frame_idx += 1
 
-            # Add true label if available
-            if true_labels is not None and pred_idx < len(true_labels):
-                true_text = f"True: {true_label}"
-
-                (text_width3, text_height3), _ = cv2.getTextSize(true_text, font, font_scale, thickness)
-                cv2.rectangle(frame, (10, 50 + text_height), (20 + text_width3, 70 + text_height + text_height3), (0, 0, 0), -1)
-                cv2.putText(frame, true_text, (15, 75 + text_height), font, font_scale, (0, 255, 0), thickness)
-
-            # Frame number
-            frame_text = f"Frame: {frame_idx}"
-            (text_width2, text_height2), _ = cv2.getTextSize(frame_text, font, 0.6, 2)
-            cv2.rectangle(frame, (10, height - 40), (20 + text_width2, height - 10), (0, 0, 0), -1)
-            cv2.putText(frame, frame_text, (15, height - 20), font, 0.6, (255, 255, 255), 2)
-
-            pred_idx += 1
-        else:
-            # No prediction available for this frame
-            label_text = "No prediction"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            cv2.putText(frame, label_text, (15, 35), font, 1.0, (0, 0, 255), 2)
-
-        # Write frame to output
-        out.write(frame)
-        frame_idx += 1
-
-        if frame_idx % 100 == 0:
-            print(f"Processed {frame_idx} frames...")
+            if frame_idx % 100 == 0:
+                pbar.update()
 
     # Release everything
     cap.release()
@@ -96,5 +131,3 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
     print(f"Done! Annotated video saved to: {output_path}")
     print(f"Total frames processed: {frame_idx}")
 
-
-annotate_video_with_predictions("./data/raw_videos/OFT_left_11.avi", pd.read_csv("./output/y_pred_100.csv"), "./output/video_11.mp4", 0, pd.read_csv("./output/y_true_100.csv"))

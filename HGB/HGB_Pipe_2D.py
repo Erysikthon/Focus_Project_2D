@@ -35,7 +35,7 @@ from sklearn.preprocessing import StandardScaler
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "hist_old_features"
+DATASET_VERSION = "HGB_hist_old_features"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
@@ -267,13 +267,13 @@ if not os.path.isfile(model_path):
 
     # Grid Search
     param_grid = {
-        'classifier__max_iter': [125],
-        'classifier__max_depth': [3],
+        'classifier__max_iter': [125, 150],
+        'classifier__max_depth': [3, 5],
         'classifier__learning_rate': [0.05],
-        'classifier__min_samples_leaf': [80], #the higher, the less overfitting, 80
-        'classifier__l2_regularization': [0.1],
+        'classifier__min_samples_leaf': [40, 80], #the higher, the less overfitting, 80
+        'classifier__l2_regularization': [0, 0.1],
         'classifier__max_bins': [255],
-        'classifier__max_leaf_nodes': [31]  # Limits tree complexity, 63
+        'classifier__max_leaf_nodes': [31, 63]  # Limits tree complexity, 63
 
     }
 
@@ -319,7 +319,7 @@ else:
     print("\nWith smoothing")
     evaluate_model(model, X_train, y_train, X_test, y_test, min_frames=10, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_1.png")
 
-
+"""
 # Ensure y_train and y_test are raveled for both branches
 if not isinstance(y_train, np.ndarray):
     y_train = y_train.values.ravel()
@@ -430,3 +430,5 @@ else:
     print("\n=== Performance Evaluation for Loaded Second Model (Selected Features) ===")
     print("\nWith smoothing")
     evaluate_model(pipeline_selected, X_train_sel, y_train_sel, X_test_sel, y_test_sel, min_frames=10, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_2.png")
+
+"""

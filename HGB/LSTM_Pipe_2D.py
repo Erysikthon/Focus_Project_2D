@@ -24,11 +24,11 @@ import numpy as np
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "2D_LSTM_hist_1"
+DATASET_VERSION = "LSTM_hist_old_features"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_2D_hist.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_2D_hist_filtered.csv"
-y_path = f"./pipeline_saved_processes/dataframes/y_2D_hist.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
+y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/LSTM_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
 label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VERSION}.pkl"
@@ -38,12 +38,12 @@ label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VE
 if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
     # Load 2D tracking data (single camera, no triangulation)
-    from py3r.behaviour.tracking.tracking import LoadOptions as opt, Tracking
+    from py3r.behaviour.tracking.tracking import Tracking
     from py3r.behaviour.features.features_collection import FeaturesCollection
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
     import glob
 
-    collection_path = "./pipeline_inputs/collection_2D"
+    collection_path = "./pipeline_inputs/collection"
     fps = 30
     rescale_points = ("tr", "tl")
     rescale_distance = 0.64
@@ -53,21 +53,19 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     smoothing_mouse = 3
     smoothing_oft = 20
 
-    options = opt(fps=fps)
 
-    # Manually load each video's tracking from subfolders
+
+    # Load tracking point CSVs from collection folder
     tracking_dict = {}
-    video_folders = natsorted([d for d in os.listdir(collection_path) if os.path.isdir(os.path.join(collection_path, d))])
+    csv_files = natsorted([f for f in os.listdir(collection_path) if f.endswith('.csv') and not f.startswith('.')])
 
-    for video_handle in video_folders:
-        video_path = os.path.join(collection_path, video_handle)
-        # Find the CSV file (e.g., T1.csv)
-        csv_files = [f for f in os.listdir(video_path) if f.endswith('.csv') and not f.startswith('.')]
-        if csv_files:
-            csv_path = os.path.join(video_path, csv_files[0])
-            tracking_dict[video_handle] = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, options=options)
+    for csv_file in csv_files:
+        video_handle = os.path.splitext(csv_file)[0]  # Use filename without extension as handle
+        csv_path = os.path.join(collection_path, csv_file)
+        tracking_dict[video_handle] = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, fps=fps)
 
     tracking_collection = TrackingCollection(tracking_dict)
+    print(f"Initial videos loaded: {len(tracking_collection._obj_dict)}")
 
     # Strip column name prefixes (e.g., oft.oft_0.tr.x -> tr.x)
     tracking_collection.strip_column_names()
@@ -79,23 +77,18 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
         if not all(col in tracking.data.columns for col in required_columns):
             videos_to_remove.append(video_id)
             print(f"Warning: Video {video_id} missing OFT corner data - will be excluded")
+            print(f"  Available columns: {[col for col in tracking.data.columns if any(x in col for x in ['tr', 'tl', 'br', 'bl'])]}")
 
     for video_id in videos_to_remove:
         del tracking_collection._obj_dict[video_id]
 
-    print(f"Loaded {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
+    print(f"After OFT filter: {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
 
     # Likelihood filter
     tracking_collection.filter_likelihood(filter_threshold)
 
     # Rescale (2D only - x, y)
     tracking_collection.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance, dims=("x", "y"))
-
-    # Construction points
-    if construction_points:
-        for handle in construction_points:
-            construction_infos = construction_points[handle]
-            tracking_collection.construction_point(handle, construction_infos["between_points"], dims=("x", "y"))
 
     # Smoothing
     if smoothing:
@@ -119,7 +112,6 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
             "tl": {"window": smoothing_oft, "type": "median"},
             "br": {"window": smoothing_oft, "type": "median"},
             "bl": {"window": smoothing_oft, "type": "median"},
-            "mid": {"window": smoothing_oft, "type": "median"}
         }
         tracking_collection.smooth(smoothing_dict)
 
@@ -146,17 +138,6 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                          ("bodycentre", "hipr"): ("x", "y")
                                          },
 
-                               angle={("bodycentre", "neck", "neck", "headcentre"): "radians",
-                                      ("bodycentre", "neck", "neck", "earl"): "radians",
-                                      ("bodycentre", "neck", "neck", "earr"): "radians",
-                                      ("tailbase", "bodycentre", "bodycentre", "neck"): "radians",
-                                      ("tailbase", "bodycentre", "tailbase", "hipl"): "radians",
-                                      ("tailbase", "bodycentre", "tailbase", "hipr"): "radians",
-                                      ("tailbase", "bodycentre", "hipl", "bcl"): "radians",
-                                      ("tailbase", "bodycentre", "hipr", "bcr"): "radians",
-                                      ("bodycentre", "tailbase", "tailbase", "tailcentre"): "radians",
-                                      ("bodycentre", "tailbase", "tailcentre", "tailtip"): "radians"
-                                      },
 
                                speed=("headcentre",
                                       "earl",
@@ -189,12 +170,18 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                embedding_length=list(range(-15, 16, 3))
                                )
 
-    y = labels(labels_path="./pipeline_inputs/labels_2D",
+    y = labels(labels_path="./pipeline_inputs/labels",
                )
 
+    print(f"\nBefore drop_non_analyzed_videos: X has {X.index.get_level_values('video_id').nunique()} videos, y has {y.index.get_level_values('video_id').nunique()} videos")
     X, y = drop_non_analyzed_videos(X=X, y=y)
+    print(f"After drop_non_analyzed_videos: {X.index.get_level_values('video_id').nunique()} videos")
+
     X, y = drop_last_frame(X=X, y=y)
+    print(f"After drop_last_frame: {X.index.get_level_values('video_id').nunique()} videos")
+
     X, y = drop_nas(X=X, y=y)
+    print(f"After drop_nas: {X.index.get_level_values('video_id').nunique()} videos")
     X = reduce_bits(X)
 
     print("saving...")

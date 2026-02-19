@@ -64,19 +64,17 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
 
 
-    # Manually load each video's tracking from subfolders
+    # Load tracking point CSVs from collection folder
     tracking_dict = {}
-    video_folders = natsorted([d for d in os.listdir(collection_path) if os.path.isdir(os.path.join(collection_path, d))])
+    csv_files = natsorted([f for f in os.listdir(collection_path) if f.endswith('.csv') and not f.startswith('.')])
 
-    for video_handle in video_folders:
-        video_path = os.path.join(collection_path, video_handle)
-        # Find the CSV file (e.g., T1.csv)
-        csv_files = [f for f in os.listdir(video_path) if f.endswith('.csv') and not f.startswith('.')]
-        if csv_files:
-            csv_path = os.path.join(video_path, csv_files[0])
-            tracking_dict[video_handle] = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, fps=fps)
+    for csv_file in csv_files:
+        video_handle = os.path.splitext(csv_file)[0]  # Use filename without extension as handle
+        csv_path = os.path.join(collection_path, csv_file)
+        tracking_dict[video_handle] = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, fps=fps)
 
     tracking_collection = TrackingCollection(tracking_dict)
+    print(f"Initial videos loaded: {len(tracking_collection._obj_dict)}")
 
     # Strip column name prefixes (e.g., oft.oft_0.tr.x -> tr.x)
     tracking_collection.strip_column_names()
@@ -88,11 +86,12 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
         if not all(col in tracking.data.columns for col in required_columns):
             videos_to_remove.append(video_id)
             print(f"Warning: Video {video_id} missing OFT corner data - will be excluded")
+            print(f"  Available columns: {[col for col in tracking.data.columns if any(x in col for x in ['tr', 'tl', 'br', 'bl'])]}")
 
     for video_id in videos_to_remove:
         del tracking_collection._obj_dict[video_id]
 
-    print(f"Loaded {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
+    print(f"After OFT filter: {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
 
     # Likelihood filter
     tracking_collection.filter_likelihood(filter_threshold)
@@ -195,9 +194,16 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     y = labels(labels_path="./pipeline_inputs/labels",
                )
 
+    print(f"\nBefore drop_non_analyzed_videos: X has {X.index.get_level_values('video_id').nunique()} videos, y has {y.index.get_level_values('video_id').nunique()} videos")
     X, y = drop_non_analyzed_videos(X=X, y=y)
+    print(f"After drop_non_analyzed_videos: {X.index.get_level_values('video_id').nunique()} videos")
+
     X, y = drop_last_frame(X=X, y=y)
+    print(f"After drop_last_frame: {X.index.get_level_values('video_id').nunique()} videos")
+
     X, y = drop_nas(X=X, y=y)
+    print(f"After drop_nas: {X.index.get_level_values('video_id').nunique()} videos")
+
     X = reduce_bits(X)
 
     print("saving...")
@@ -224,10 +230,18 @@ else:
 if not os.path.isfile(model_path):
 
     # Split data (collinearity filtering already applied)
-    X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=10, random_state =20)
+    # Dynamically set test_videos based on available data (use 20% for test, minimum 1)
+    n_videos = X.index.get_level_values("video_id").nunique()
+    test_videos = max(1, int(n_videos * 0.2))
+    print(f"Total videos: {n_videos}, Test videos: {test_videos}, Train videos: {n_videos - test_videos}")
+    X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=test_videos, random_state=20)
 
     # Get video groups for cross-validation
     groups_train = X_train.index.get_level_values("video_id")
+
+    # Reset index to avoid sklearn indexing issues with MultiIndex
+    X_train = X_train.reset_index(drop=True)
+    X_test = X_test.reset_index(drop=True)
 
     # Ravel
     y_train = y_train.values.ravel()

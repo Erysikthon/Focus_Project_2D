@@ -22,7 +22,9 @@ def labels(labels_path : str,
         elif name.endswith('.csv'):
             # If it's a CSV file directly in the path
             df = pd.read_csv(full_path, index_col=[0])
-            dictionary[name.replace(".csv","")] = df.idxmax(axis = 1)
+            # Remove .csv extension and _labels suffix to match tracking video_id
+            video_id = name.replace(".csv", "").replace("_labels", "")
+            dictionary[video_id] = df.idxmax(axis = 1)
 
     y = pd.concat(dictionary.values(), keys=dictionary.keys(), names=["video_id", "frame"])
 

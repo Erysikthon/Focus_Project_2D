@@ -28,10 +28,13 @@ def features_2d(features_collection : FeaturesCollection,
             features_collection.distance_between(handle[0], handle[1], dim).store()
 
     # Azimuth / Angles (only x,y plane for 2D)
-    print("calculating angles...")
+    print("calculating angles and azimuths...")
+
+    for handle in azimuth_deviation:
+        features_collection.angle(handle).store() #pretty sure this uses x, y by default
 
     for handle in azimuth:
-        features_collection.azimuth(handle[0], handle[1]).store()
+        features_collection.azimuth(handle).store()
 
 
 
@@ -41,7 +44,18 @@ def features_2d(features_collection : FeaturesCollection,
     for point in speed:
         features_collection.speed(point, dims=("x","y")).store()
 
+    # Absolute position change from last frame (also x, y)
+    print("calculating movement...")
 
+    for point in distance_change:
+        features_collection.distance_change(point, dims=("x","y")).store()
+
+    #Areas
+
+    print("calculating areas...")
+
+    for handle in area_of_boundary:
+        features_collection.area_of_boundary(handle, median=True).store()
 
     #Distances to boundary
     print("calculating distance to boundary...")

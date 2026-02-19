@@ -147,17 +147,27 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                          ("bodycentre", "hipl"): ("x", "y"),
                                          ("bodycentre", "hipr"): ("x", "y")
                                          },
-
-                               azimuth={("bodycentre", "neck"): ("x", "y"),
-                                      ("bodycentre", "earl"): ("x", "y"),
-                                      ("bodycentre", "earr"): ("x", "y"),
-                                      ("tailbase", "bodycentre"): ("x", "y"),
-                                      ("tailbase", "tailbase"): ("x", "y"),
-                                      ("tailbase", "hipr"): ("x", "y"),
-                                      ("tailbase", "bcl"): ("x", "y"),
-                                      ("tailbase", "bcr"): ("x", "y"),
-                                      ("bodycentre", "tailbase"): ("x", "y"),
-                                      ("bodycentre", "tailcentre"): ("x", "y")
+                                  # these next ones are angles
+                                  # please note the syntax
+                                  # first point is the "peak" of the angle, next 2 are the points defining the two lines
+                                  # ALWAYS denote the directions in counterclockwise order, this function gives a signed result
+                                  # failing to follow the above instructions will result in random signage (+/-)
+                                  # refer to mouse tracking model for the points and directions
+                               azimuth_direction={("neck", "bcl", "earl"),
+                                      ("neck", "earr", "bcr"),
+                                      ("bodycentre", "hipl", "bcl"),
+                                      ("bodycentre", "bcr", "hipr"),
+                                      ("bodycentre", "tailbase", "hipl"),
+                                      ("bodycentre", "hipr", "tailbase")
+                               },
+                                # just examples, idek if this feature is useful
+                               azimuth={("bodycentre", "neck"),
+                                      ("neck", "earl"),
+                                      ("neck", "earr"),
+                                      ("tailbase", "bodycentre"),
+                                      ("tailbase", "hipr"),
+                                      ("tailbase", "hipl"),
+                                      ("neck", "nose")
                                       },
 
                                speed=("headcentre",
@@ -171,6 +181,24 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                       "hipr",
                                       "tailcentre"
                                       ),
+
+                               distance_change=("headcentre",
+                                                "earl",
+                                                "earr",
+                                                "neck",
+                                                "bcl",
+                                                "bcr",
+                                                "bodycentre",
+                                                "hipl",
+                                                "hipr",
+                                                "tailcentre"
+                               ),
+                                # areas of the head and body, for now
+                                # we can do individual triangles too
+                                # write them "along the edge", otherwise the function gets confused
+                               area_of_boundary={("nose", "earl", "neck", "earr"),
+                                                 ("neck", "bcr", "hipr", "tailbase", "hipl", "bcl")
+                               },
 
                                distance_to_boundary=("headcentre",
                                                      "earl",

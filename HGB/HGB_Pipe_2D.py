@@ -35,10 +35,10 @@ from sklearn.preprocessing import StandardScaler
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "HGB_hist_old_features"
+DATASET_VERSION = "HGB_hist_new_features"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_hist_new.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_new_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}.pkl"
 
@@ -212,7 +212,6 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                                      "tailcentre"
                                                      ),
 
-                               is_point_recognized=(["nose"]),
 
                                f_b_fill=True,
 

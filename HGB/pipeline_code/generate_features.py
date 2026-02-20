@@ -34,10 +34,10 @@ def features_2d(features_collection : FeaturesCollection,
     print("calculating angles and azimuths...")
 
     for handle in azimuth_deviation:
-        features_collection.azimuth_deviation(handle).store() #pretty sure this uses x, y by default
+        features_collection.azimuth_deviation(*handle).store() #pretty sure this uses x, y by default
 
     for handle in azimuth:
-        features_collection.azimuth(handle).store()
+        features_collection.azimuth(*handle).store()
 
 
 

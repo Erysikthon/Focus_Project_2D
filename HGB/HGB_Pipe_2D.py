@@ -153,7 +153,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                   # ALWAYS denote the directions in counterclockwise order, this function gives a signed result
                                   # failing to follow the above instructions will result in random signage (+/-)
                                   # refer to mouse tracking model for the points and directions
-                               azimuth_direction={("neck", "bcl", "earl"),
+                               azimuth_deviationn={("neck", "bcl", "earl"),
                                       ("neck", "earr", "bcr"),
                                       ("bodycentre", "hipl", "bcl"),
                                       ("bodycentre", "bcr", "hipr"),

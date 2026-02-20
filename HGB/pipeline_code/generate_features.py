@@ -8,8 +8,11 @@ from natsort import natsorted
 
 def features_2d(features_collection : FeaturesCollection,
                       distance : dict[tuple : str] = [],
+                      azimuth_deviation : dict[str] = [],
                       azimuth : dict[str : str] = [],
                       speed : tuple[str] = [],
+                      distance_change : dict[str] = [],
+                      area_of_boundary : dict[str] = [],
                       distance_to_boundary : tuple[str] = [],
                       is_point_recognized : tuple[str] = [],
                       f_b_fill = True,

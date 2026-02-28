@@ -3,6 +3,7 @@ import pandas as pd
 from py3r.behaviour.features.features_collection import FeaturesCollection
 from py3r.behaviour.tracking.tracking_collection import TrackingCollection
 from py3r.behaviour.tracking.tracking_mv import TrackingMV
+from py3r.behaviour.features.boundary import DynamicBoundary
 from natsort import natsorted
 
 
@@ -27,17 +28,17 @@ def features_2d(features_collection : FeaturesCollection,
     print("calculating distance...")
 
     for handle in distance:
-        for dim in distance[handle]:
-            features_collection.distance_between(handle[0], handle[1], dim).store()
+        dims = distance[handle]
+        features_collection.each.distance_between(handle[0], handle[1], dims=dims).store()
 
     # Azimuth / Angles (only x,y plane for 2D)
     print("calculating angles and azimuths...")
 
     for handle in azimuth_deviation:
-        features_collection.azimuth_deviation(*handle).store() #pretty sure this uses x, y by default
+        features_collection.each.azimuth_deviation(*handle).store() #pretty sure this uses x, y by default
 
     for handle in azimuth:
-        features_collection.azimuth(*handle).store()
+        features_collection.each.azimuth(*handle).store()
 
 
 
@@ -45,26 +46,31 @@ def features_2d(features_collection : FeaturesCollection,
     print("calculating speed...")
 
     for point in speed:
-        features_collection.speed(point, dims=("x","y")).store()
+        features_collection.each.speed(point, dims=("x","y")).store()
 
     # Absolute position change from last frame (also x, y)
     print("calculating movement...")
 
     for point in distance_change:
-        features_collection.distance_change(point, dims=("x","y")).store()
+        features_collection.each.distance_change(point, dims=("x","y")).store()
 
     #Areas
 
     print("calculating areas...")
 
-    for handle in area_of_boundary:
-        features_collection.area_of_boundary(handle, median=True).store()
+    for boundary_points in area_of_boundary:
+        # Create a DynamicBoundary from the points tuple
+        boundary_name = "_".join(boundary_points)
+        boundary = DynamicBoundary(list(boundary_points))
+        features_collection.each.area_of_boundary(boundary).store()
 
     #Distances to boundary
     print("calculating distance to boundary...")
 
     for point in distance_to_boundary:
-        features_collection.distance_to_boundary_dynamic(point, ["tl", "tr", "bl", "br"], "oft").store()
+        # Create a DynamicBoundary for the OFT corners
+        boundary = DynamicBoundary(["tl", "tr", "bl", "br"])
+        features_collection.each.distance_to_boundary(point, boundary).store()
 
     ############################################### Missing data handling
 
@@ -86,13 +92,13 @@ def features_2d(features_collection : FeaturesCollection,
     embedding = {}
     for column in features_collection[0].data.columns:
         embedding[column] =  list(embedding_length)
-    features_collection = features_collection.embedding_df(embedding)
+    features_collection.each.embedding_df(embedding)
 
     # Extract features
     feature_dict = {}
     for handle in natsorted(features_collection):
         feature_obj = features_collection[handle]
-        feature_dict[handle] = feature_obj
+        feature_dict[handle] = feature_obj.data
 
     combined_features = pd.concat(feature_dict.values(), keys=feature_dict.keys(), names=['video_id', 'frame'])
 

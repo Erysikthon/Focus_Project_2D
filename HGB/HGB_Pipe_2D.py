@@ -77,7 +77,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     print(f"Initial videos loaded: {len(tracking_collection._obj_dict)}")
 
     # Strip column name prefixes (e.g., oft.oft_0.tr.x -> tr.x)
-    tracking_collection.strip_column_names()
+    tracking_collection.each.strip_column_names()
 
     # Filter out videos that don't have OFT corner tracking
     videos_to_remove = []
@@ -94,36 +94,16 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     print(f"After OFT filter: {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
 
     # Likelihood filter
-    tracking_collection.filter_likelihood(filter_threshold)
+    tracking_collection.each.filter_likelihood(filter_threshold)
 
     # Rescale (2D only - x, y)
-    tracking_collection.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance, dims=("x", "y"))
+    tracking_collection.each.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance, dims=("x", "y"))
 
 
     # Smoothing
     if smoothing:
-        smoothing_dict = {
-            # mouse
-            "nose": {"window": smoothing_mouse, "type": "mean"},
-            "headcentre": {"window": smoothing_mouse, "type": "mean"},
-            "neck": {"window": smoothing_mouse, "type": "mean"},
-            "earl": {"window": smoothing_mouse, "type": "mean"},
-            "earr": {"window": smoothing_mouse, "type": "mean"},
-            "bodycentre": {"window": smoothing_mouse, "type": "mean"},
-            "bcl": {"window": smoothing_mouse, "type": "mean"},
-            "bcr": {"window": smoothing_mouse, "type": "mean"},
-            "hipl": {"window": smoothing_mouse, "type": "mean"},
-            "hipr": {"window": smoothing_mouse, "type": "mean"},
-            "tailbase": {"window": smoothing_mouse, "type": "mean"},
-            "tailcentre": {"window": smoothing_mouse, "type": "mean"},
-            "tailtip": {"window": smoothing_mouse, "type": "mean"},
-            # oft
-            "tr": {"window": smoothing_oft, "type": "median"},
-            "tl": {"window": smoothing_oft, "type": "median"},
-            "br": {"window": smoothing_oft, "type": "median"},
-            "bl": {"window": smoothing_oft, "type": "median"},
-        }
-        tracking_collection.smooth(smoothing_dict)
+        tracking_collection.each.smooth_all(3)
+
 
     features_collection = FeaturesCollection.from_tracking_collection(tracking_collection)
 

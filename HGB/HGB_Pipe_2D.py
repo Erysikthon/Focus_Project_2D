@@ -35,7 +35,7 @@ from sklearn.preprocessing import StandardScaler
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "HGB_hist_new_features"
+DATASET_VERSION = "HGB_hist_3_(grid)"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_hist_new.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_new_filtered.csv"
@@ -236,12 +236,28 @@ else:
 
 if not os.path.isfile(model_path):
 
-    # Split data (collinearity filtering already applied)
-    # Dynamically set test_videos based on available data (use 20% for test, minimum 1)
-    n_videos = X.index.get_level_values("video_id").nunique()
-    test_videos = max(1, int(n_videos * 0.2))
-    print(f"Total videos: {n_videos}, Test videos: {test_videos}, Train videos: {n_videos - test_videos}")
-    X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=test_videos, random_state=20)
+    # Option 1: Manually define test video IDs (set to None to use random split)
+    manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
+
+    if manual_test_video_ids is not None:
+        # Use manually specified test videos
+        all_video_ids = X.index.get_level_values("video_id").unique()
+        test_video_ids = [vid for vid in manual_test_video_ids if vid in all_video_ids]
+        train_video_ids = [vid for vid in all_video_ids if vid not in test_video_ids]
+
+        print(f"Manual split: Total videos: {len(all_video_ids)}, Test videos: {len(test_video_ids)}, Train videos: {len(train_video_ids)}")
+        print(f"Test video IDs: {test_video_ids}")
+
+        X_train = X.loc[X.index.get_level_values('video_id').isin(train_video_ids)]
+        X_test = X.loc[X.index.get_level_values('video_id').isin(test_video_ids)]
+        y_train = y.loc[y.index.get_level_values('video_id').isin(train_video_ids)]
+        y_test = y.loc[y.index.get_level_values('video_id').isin(test_video_ids)]
+    else:
+        # Option 2: Random split (original behavior)
+        n_videos = X.index.get_level_values("video_id").nunique()
+        test_videos = max(1, int(n_videos * 0.2))
+        print(f"Random split: Total videos: {n_videos}, Test videos: {test_videos}, Train videos: {n_videos - test_videos}")
+        X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=test_videos, random_state=20)
 
     # Get video groups for cross-validation
     groups_train = X_train.index.get_level_values("video_id")
@@ -274,13 +290,13 @@ if not os.path.isfile(model_path):
 
     # Grid Search
     param_grid = {
-        'classifier__max_iter': [125, 150],
-        'classifier__max_depth': [3, 5],
-        'classifier__learning_rate': [0.05],
-        'classifier__min_samples_leaf': [40, 80], #the higher, the less overfitting, 80
+        'classifier__max_iter': [300],
+        'classifier__max_depth': [7],
+        'classifier__learning_rate': [0.1],
+        'classifier__min_samples_leaf': [40], #the higher, the less overfitting, 80
         'classifier__l2_regularization': [0, 0.1],
         'classifier__max_bins': [255],
-        'classifier__max_leaf_nodes': [31, 63]  # Limits tree complexity, 63
+        'classifier__max_leaf_nodes': [63]  # Limits tree complexity, 63
 
     }
 

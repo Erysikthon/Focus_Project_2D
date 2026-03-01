@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 from pipeline_code.generate_features import features_2d
@@ -20,17 +19,18 @@ import pandas as pd
 from natsort import natsorted
 import os
 import numpy as np
+import math
 
 
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "LSTM_hist_8_(revert_mixup)"
+DATASET_VERSION = "Transformer_hist_2"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
-model_path = f"pipeline_saved_processes/models/LSTM_{DATASET_VERSION}.pth"
+model_path = f"pipeline_saved_processes/models/Transformer_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
 label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VERSION}.pkl"
 
@@ -221,63 +221,95 @@ class SequenceDataset(Dataset):
     def __getitem__(self, idx):
         return self.sequences[idx], self.labels[idx]
 
-# LSTM Neural Network Architecture
-class LSTMClassifier(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, num_classes, dropout=0.5):
-        super(LSTMClassifier, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
 
-        self.lstm = nn.LSTM(
-            input_size=input_size,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0
+# Positional Encoding for Transformer
+class PositionalEncoding(nn.Module):
+    def __init__(self, d_model, max_len=5000, dropout=0.1):
+        super(PositionalEncoding, self).__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Create positional encodings
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # Shape: (1, max_len, d_model)
+
+        self.register_buffer('pe', pe)
+
+    def forward(self, x):
+        # x shape: (batch, seq_len, d_model)
+        x = x + self.pe[:, :x.size(1), :]
+        return self.dropout(x)
+
+
+# Transformer Classifier
+class TransformerClassifier(nn.Module):
+    def __init__(self, input_size, d_model, nhead, num_layers, num_classes, dim_feedforward=512, dropout=0.3):
+        super(TransformerClassifier, self).__init__()
+        self.d_model = d_model
+
+        # Input projection with layer norm
+        self.input_projection = nn.Sequential(
+            nn.Linear(input_size, d_model),
+            nn.LayerNorm(d_model),
+            nn.ReLU(),
+            nn.Dropout(dropout * 0.5)
         )
 
+        # Positional encoding
+        self.pos_encoder = PositionalEncoding(d_model, dropout=dropout * 0.5)
+
+        # Transformer encoder
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=d_model,
+            nhead=nhead,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            batch_first=True,
+            activation='gelu'  # GELU works better than ReLU for transformers
+        )
+        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
+
+        # Enhanced classification head with residual connection
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Sequential(
-            nn.Linear(hidden_size, hidden_size // 2),
-            nn.BatchNorm1d(hidden_size // 2),
-            nn.ReLU(),
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model),
+            nn.GELU(),
             nn.Dropout(dropout),
-            nn.Linear(hidden_size // 2, num_classes)
+            nn.Linear(d_model, d_model // 2),
+            nn.LayerNorm(d_model // 2),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(d_model // 2, num_classes)
         )
 
     def forward(self, x):
         # x shape: (batch, seq_len, input_size)
-        lstm_out, (h_n, c_n) = self.lstm(x)
 
-        # Use the last hidden state
-        last_hidden = h_n[-1]  # Shape: (batch, hidden_size)
+        # Project input to d_model dimensions
+        x = self.input_projection(x)  # (batch, seq_len, d_model)
 
-        # Apply dropout and fully connected layers
-        out = self.dropout(last_hidden)
-        out = self.fc(out)
-        return out
+        # Add positional encoding
+        x = self.pos_encoder(x)
 
-# Mixup augmentation function
-def mixup_data(x, y, alpha=0.2):
-    """Apply mixup augmentation to sequences."""
-    if alpha > 0:
-        lam = np.random.beta(alpha, alpha)
-    else:
-        lam = 1
+        # Transformer encoding
+        x = self.transformer_encoder(x)  # (batch, seq_len, d_model)
 
-    batch_size = x.size(0)
-    index = torch.randperm(batch_size).to(x.device)
+        # Global average pooling over sequence dimension
+        x = x.mean(dim=1)  # (batch, d_model)
 
-    mixed_x = lam * x + (1 - lam) * x[index]
-    y_a, y_b = y, y[index]
-    return mixed_x, y_a, y_b, lam
+        # Classification
+        x = self.dropout(x)
+        x = self.fc(x)
+        return x
 
-def mixup_criterion(criterion, pred, y_a, y_b, lam):
-    """Compute mixup loss."""
-    return lam * criterion(pred, y_a) + (1 - lam) * criterion(pred, y_b)
 
-# Training function with optional mixup
-def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=True, mixup_alpha=0.2):
+# Training function
+def train_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
     total_loss = 0
     correct = 0
@@ -287,16 +319,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=True,
         batch_X, batch_y = batch_X.to(device), batch_y.to(device)
 
         optimizer.zero_grad()
-
-        if use_mixup:
-            # Apply mixup augmentation
-            mixed_X, y_a, y_b, lam = mixup_data(batch_X, batch_y, alpha=mixup_alpha)
-            outputs = model(mixed_X)
-            loss = mixup_criterion(criterion, outputs, y_a, y_b, lam)
-        else:
-            outputs = model(batch_X)
-            loss = criterion(outputs, batch_y)
-
+        outputs = model(batch_X)
+        loss = criterion(outputs, batch_y)
         loss.backward()
 
         # Gradient clipping to prevent exploding gradients
@@ -311,38 +335,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device, use_mixup=True,
 
     return total_loss / len(dataloader), 100 * correct / total
 
-# Focal Loss for imbalanced classes
-class FocalLoss(nn.Module):
-    def __init__(self, alpha=None, gamma=2.0, reduction='mean'):
-        """
-        Focal Loss for addressing class imbalance.
-
-        Args:
-            alpha: Class weights tensor (FloatTensor of shape [num_classes])
-            gamma: Focusing parameter (default 2.0). Higher values give more focus to hard examples.
-            reduction: Specifies the reduction to apply ('none', 'mean', 'sum')
-        """
-        super(FocalLoss, self).__init__()
-        self.alpha = alpha
-        self.gamma = gamma
-        self.reduction = reduction
-
-    def forward(self, inputs, targets):
-        # Compute cross entropy loss
-        ce_loss = F.cross_entropy(inputs, targets, weight=self.alpha, reduction='none')
-
-        # Compute pt (the probability of the true class)
-        pt = torch.exp(-ce_loss)
-
-        # Compute focal loss
-        focal_loss = ((1 - pt) ** self.gamma) * ce_loss
-
-        if self.reduction == 'mean':
-            return focal_loss.mean()
-        elif self.reduction == 'sum':
-            return focal_loss.sum()
-        else:
-            return focal_loss
 
 # Evaluation function
 def evaluate(model, dataloader, device):
@@ -359,6 +351,7 @@ def evaluate(model, dataloader, device):
             all_labels.extend(batch_y.numpy())
 
     return np.array(all_preds), np.array(all_labels)
+
 
 if not os.path.isfile(model_path):
 
@@ -407,20 +400,7 @@ if not os.path.isfile(model_path):
     y_train_flat = y_train_encoded.values.ravel()
     unique, counts = np.unique(y_train_flat, return_counts=True)
     class_counts = dict(zip(unique, counts))
-    print(f"\nClass distribution in training: {class_counts}")
-
-    # Show test set distribution
-    y_test_flat = y_test_encoded.values.ravel()
-    unique_test, counts_test = np.unique(y_test_flat, return_counts=True)
-    class_counts_test = dict(zip(unique_test, counts_test))
-    print(f"Class distribution in test: {class_counts_test}")
-
-    # Show percentage comparison
-    print("\nClass distribution percentages:")
-    for cls_idx, cls_name in enumerate(label_encoder.classes_):
-        train_pct = (class_counts.get(cls_idx, 0) / len(y_train_flat)) * 100
-        test_pct = (class_counts_test.get(cls_idx, 0) / len(y_test_flat)) * 100
-        print(f"  {cls_name}: Train={train_pct:.1f}%, Test={test_pct:.1f}%")
+    print(f"Class distribution in training: {class_counts}")
 
     total_samples = len(y_train_flat)
     n_classes = len(unique)
@@ -452,35 +432,42 @@ if not os.path.isfile(model_path):
 
     print(f"Total training sequences: {len(train_dataset)}, test sequences: {len(test_dataset)}")
 
-    # Reduce batch size for memory efficiency
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True, num_workers=0)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False, num_workers=0)
+    # Increase batch size for GPU efficiency
+    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True)
 
-    # Initialize model
+    # Initialize model - prioritize CUDA
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
     print(f"Using device: {device}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(f"CUDA Version: {torch.version.cuda}")
 
     input_size = X_train.shape[1]
-    hidden_size = 128   # Increased LSTM hidden size for more capacity
-    num_layers = 3     # Number of LSTM layers (increased for more complexity)
+    d_model = 256        # Increased embedding dimension for more capacity
+    nhead = 8            # Number of attention heads (must divide d_model)
+    num_layers = 6       # Increased layers for more model capacity
+    dim_feedforward = 1024  # Increased feedforward dimension
     num_classes = len(unique)
 
-    model = LSTMClassifier(
+    model = TransformerClassifier(
         input_size=input_size,
-        hidden_size=hidden_size,
+        d_model=d_model,
+        nhead=nhead,
         num_layers=num_layers,
         num_classes=num_classes,
-        dropout=0.3  # Balanced dropout
+        dim_feedforward=dim_feedforward,
+        dropout=0.3
     ).to(device)
 
     print(f"Model architecture:\n{model}")
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    # Focal Loss for imbalanced classes
+    # Weighted loss for imbalanced classes
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    criterion = FocalLoss(alpha=weight_tensor, gamma=2.0)  # Balanced focal loss gamma
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)  # Light weight decay
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)  # Add label smoothing
+    optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.01)  # Higher LR, stronger regularization
+    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)  # Better scheduler
 
     # Training loop
     num_epochs = 150
@@ -490,14 +477,14 @@ if not os.path.isfile(model_path):
     min_delta = 0.001  # Minimum improvement to reset patience
 
     for epoch in range(num_epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, use_mixup=False, mixup_alpha=0.2)
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
 
         # Evaluate
         y_pred, y_true = evaluate(model, test_loader, device)
         test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
         test_f1 = f1_score(y_true, y_pred, average='macro')
 
-        scheduler.step(test_f1)
+        scheduler.step()  # CosineAnnealingWarmRestarts doesn't need metric
 
         print(f"Epoch [{epoch+1}/{num_epochs}], "
               f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, "
@@ -509,8 +496,10 @@ if not os.path.isfile(model_path):
             torch.save({
                 'model_state_dict': model.state_dict(),
                 'input_size': input_size,
-                'hidden_size': hidden_size,
+                'd_model': d_model,
+                'nhead': nhead,
                 'num_layers': num_layers,
+                'dim_feedforward': dim_feedforward,
                 'num_classes': num_classes,
                 'sequence_length': SEQUENCE_LENGTH,
                 'class_weights': class_weights,
@@ -535,20 +524,26 @@ else:
 
     checkpoint = torch.load(model_path, weights_only=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
 
     input_size = checkpoint['input_size']
-    hidden_size = checkpoint['hidden_size']
+    d_model = checkpoint['d_model']
+    nhead = checkpoint['nhead']
     num_layers = checkpoint['num_layers']
+    dim_feedforward = checkpoint['dim_feedforward']
     num_classes = checkpoint['num_classes']
     SEQUENCE_LENGTH = checkpoint['sequence_length']
     class_weights = checkpoint['class_weights']
 
-    model = LSTMClassifier(
+    model = TransformerClassifier(
         input_size=input_size,
-        hidden_size=hidden_size,
+        d_model=d_model,
+        nhead=nhead,
         num_layers=num_layers,
         num_classes=num_classes,
-        dropout=0.5
+        dim_feedforward=dim_feedforward,
+        dropout=0.3
     ).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
 

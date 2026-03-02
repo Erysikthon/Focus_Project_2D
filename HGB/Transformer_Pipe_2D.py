@@ -25,7 +25,7 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_hist_2"
+DATASET_VERSION = "Transformer_hist_3"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
@@ -47,7 +47,8 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     collection_path = "./pipeline_inputs/collection"
     fps = 30
     rescale_points = ("tr", "tl")
-    rescale_distance = 0.64
+    rescale_distance_mbt = 0.47  # For MBT videos (27.5 x 37.5 cm box)
+    rescale_distance_default = 0.64  # For other videos (45 x 45 cm box)
     filter_threshold = 0.9
     construction_points = {"mid": {"between_points": ("tl", "tr", "bl", "br"), "mouse_or_oft": "oft"}}
     smoothing = True
@@ -88,8 +89,14 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     # Likelihood filter
     tracking_collection.each.filter_likelihood(filter_threshold)
 
-    # Rescale (2D only - x, y)
-    tracking_collection.each.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance, dims=("x", "y"))
+    # Rescale (2D only - x, y) with different distances based on video name
+    for video_id, tracking in tracking_collection._obj_dict.items():
+        if "MBT" in video_id:
+            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_mbt, dims=("x", "y"))
+            print(f"Rescaled {video_id} with distance {rescale_distance_mbt} (MBT)")
+        else:
+            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_default, dims=("x", "y"))
+            print(f"Rescaled {video_id} with distance {rescale_distance_default} (default)")
 
     # Smoothing
     if smoothing:
@@ -444,10 +451,10 @@ if not os.path.isfile(model_path):
         print(f"CUDA Version: {torch.version.cuda}")
 
     input_size = X_train.shape[1]
-    d_model = 256        # Increased embedding dimension for more capacity
+    d_model = 384        # Moderate embedding dimension
     nhead = 8            # Number of attention heads (must divide d_model)
     num_layers = 6       # Increased layers for more model capacity
-    dim_feedforward = 1024  # Increased feedforward dimension
+    dim_feedforward = 1536  # Moderate feedforward dimension (4x d_model)
     num_classes = len(unique)
 
     model = TransformerClassifier(
@@ -457,7 +464,7 @@ if not os.path.isfile(model_path):
         num_layers=num_layers,
         num_classes=num_classes,
         dim_feedforward=dim_feedforward,
-        dropout=0.3
+        dropout=0.15  # Moderate dropout
     ).to(device)
 
     print(f"Model architecture:\n{model}")
@@ -465,12 +472,12 @@ if not os.path.isfile(model_path):
 
     # Weighted loss for imbalanced classes
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)  # Add label smoothing
-    optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.01)  # Higher LR, stronger regularization
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.05)  # Reduced label smoothing
+    optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.005)  # Lower LR for stability
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)  # Better scheduler
 
     # Training loop
-    num_epochs = 150
+    num_epochs = 200
     best_f1 = 0.0
     patience = 15
     patience_counter = 0
@@ -543,7 +550,7 @@ else:
         num_layers=num_layers,
         num_classes=num_classes,
         dim_feedforward=dim_feedforward,
-        dropout=0.3
+        dropout=0.15
     ).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
 

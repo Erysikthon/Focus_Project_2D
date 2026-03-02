@@ -25,10 +25,10 @@ import numpy as np
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "LSTM_hist_8_(revert_mixup)"
+DATASET_VERSION = "LSTM_rescaled_1"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/LSTM_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
@@ -47,7 +47,8 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     collection_path = "./pipeline_inputs/collection"
     fps = 30
     rescale_points = ("tr", "tl")
-    rescale_distance = 0.64
+    rescale_distance_mbt = 0.47  # For MBT videos (27.5 x 37.5 cm box)
+    rescale_distance_default = 0.64  # For other videos (45 x 45 cm box)
     filter_threshold = 0.9
     construction_points = {"mid": {"between_points": ("tl", "tr", "bl", "br"), "mouse_or_oft": "oft"}}
     smoothing = True
@@ -63,10 +64,24 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     for csv_file in csv_files:
         video_handle = os.path.splitext(csv_file)[0]  # Use filename without extension as handle
         csv_path = os.path.join(collection_path, csv_file)
-        tracking_dict[video_handle] = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, fps=fps)
+        tracking = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, fps=fps)
+
+        # Rename .conf columns to .likelihood (py3r expects this format)
+        tracking.data.columns = [col.replace('.conf', '.likelihood') if '.conf' in col else col
+                                 for col in tracking.data.columns]
+
+        # Drop only z-coordinates (keep all x,y data from all sources)
+        cols_to_drop = [col for col in tracking.data.columns if '.z' in col]
+        if cols_to_drop:
+            tracking.data = tracking.data.drop(columns=cols_to_drop)
+
+        tracking_dict[video_handle] = tracking
 
     tracking_collection = TrackingCollection(tracking_dict)
     print(f"Initial videos loaded: {len(tracking_collection._obj_dict)}")
+
+    # Likelihood filter (must be done BEFORE strip_column_names)
+    tracking_collection.each.filter_likelihood(filter_threshold)
 
     # Strip column name prefixes (e.g., oft.oft_0.tr.x -> tr.x)
     tracking_collection.each.strip_column_names()
@@ -85,11 +100,14 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
     print(f"After OFT filter: {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
 
-    # Likelihood filter
-    tracking_collection.each.filter_likelihood(filter_threshold)
-
-    # Rescale (2D only - x, y)
-    tracking_collection.each.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance, dims=("x", "y"))
+    # Rescale (2D only - x, y) with different distances based on video name
+    for video_id, tracking in tracking_collection._obj_dict.items():
+        if "MBT" in video_id:
+            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_mbt, dims=("x", "y"))
+            print(f"Rescaled {video_id} with distance {rescale_distance_mbt} (MBT)")
+        else:
+            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_default, dims=("x", "y"))
+            print(f"Rescaled {video_id} with distance {rescale_distance_default} (default)")
 
     # Smoothing
     if smoothing:
@@ -363,7 +381,8 @@ def evaluate(model, dataloader, device):
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
-    manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
+    manual_test_video_ids = None
+    #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
     if manual_test_video_ids is not None:
         # Use manually specified test videos
@@ -533,8 +552,8 @@ else:
     # Load existing model
     import joblib
 
-    checkpoint = torch.load(model_path, weights_only=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    checkpoint = torch.load(model_path, weights_only=False, map_location=device)
 
     input_size = checkpoint['input_size']
     hidden_size = checkpoint['hidden_size']

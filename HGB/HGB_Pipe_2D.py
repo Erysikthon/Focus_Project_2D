@@ -55,7 +55,8 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     collection_path = "./pipeline_inputs/collection"
     fps = 30
     rescale_points = ("tr", "tl")
-    rescale_distance = 0.64
+    rescale_distance_mbt = 0.47  # For MBT videos (27.5 x 37.5 cm box)
+    rescale_distance_default = 0.64  # For other videos (45 x 45 cm box)
     filter_threshold = 0.9
     construction_points = {"mid": {"between_points": ("tl", "tr", "bl", "br"), "mouse_or_oft": "oft"}}
     smoothing = True
@@ -96,8 +97,14 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     # Likelihood filter
     tracking_collection.each.filter_likelihood(filter_threshold)
 
-    # Rescale (2D only - x, y)
-    tracking_collection.each.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance, dims=("x", "y"))
+    # Rescale (2D only - x, y) with different distances based on video name
+    for video_id, tracking in tracking_collection._obj_dict.items():
+        if "MBT" in video_id:
+            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_mbt, dims=("x", "y"))
+            print(f"Rescaled {video_id} with distance {rescale_distance_mbt} (MBT)")
+        else:
+            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_default, dims=("x", "y"))
+            print(f"Rescaled {video_id} with distance {rescale_distance_default} (default)")
 
 
     # Smoothing

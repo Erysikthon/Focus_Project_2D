@@ -27,7 +27,7 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_hist_2"
+DATASET_VERSION = "Transformer_hist_8"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
@@ -282,7 +282,7 @@ class TransformerClassifier(nn.Module):
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # Enhanced classification head with residual connection
+        # Simple classification head
         self.dropout = nn.Dropout(dropout)
         self.fc = nn.Sequential(
             nn.Linear(d_model, d_model),
@@ -405,7 +405,7 @@ if not os.path.isfile(model_path):
     joblib.dump(label_encoder, label_encoder_path)
     print(f"Label mapping: {dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))}")
 
-    # Calculate class weights
+    # Calculate class weights with sqrt scaling for smoother weighting
     y_train_flat = y_train_encoded.values.ravel()
     unique, counts = np.unique(y_train_flat, return_counts=True)
     class_counts = dict(zip(unique, counts))
@@ -413,8 +413,9 @@ if not os.path.isfile(model_path):
 
     total_samples = len(y_train_flat)
     n_classes = len(unique)
-    class_weights = {cls: total_samples / (n_classes * count) for cls, count in class_counts.items()}
-    print(f"Class weights: {class_weights}")
+    # Use sqrt of inverse frequency for smoother weighting
+    class_weights = {cls: np.sqrt(total_samples / (n_classes * count)) for cls, count in class_counts.items()}
+    print(f"Class weights (sqrt scaled): {class_weights}")
 
     # Scale features
     scaler = StandardScaler()
@@ -432,43 +433,19 @@ if not os.path.isfile(model_path):
     # Save scaler
     joblib.dump(scaler, scaler_path)
 
-    # Create sequence datasets with stride to reduce memory usage
+    # Create sequence datasets with uniform stride
     SEQUENCE_LENGTH = 30  # Use 30 frames (1 second at 30 fps)
-    STRIDE = 10  # Step size between sequences (reduces memory by 3x)
+    STRIDE = 5  # Optimal stride for hist_8
     print(f"Creating sequences with length {SEQUENCE_LENGTH} and stride {STRIDE}...")
     train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
     test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
 
     print(f"Total training sequences: {len(train_dataset)}, test sequences: {len(test_dataset)}")
+    print(f"Class distribution in training sequences: {Counter(train_dataset.labels.numpy())}")
 
-    # Apply SMOTE to balance training data
-    print("\n=== Applying SMOTE for class balancing ===")
-    print(f"Class distribution before SMOTE: {Counter(train_dataset.labels.numpy())}")
-
-    # Flatten sequences for SMOTE (SMOTE works on 2D data)
-    X_train_flat = train_dataset.sequences.reshape(len(train_dataset.sequences), -1).numpy()
-    y_train_flat = train_dataset.labels.numpy()
-
-    # Apply SMOTE with k_neighbors adjusted for smallest class
-    min_samples = min(Counter(y_train_flat).values())
-    k_neighbors = min(5, min_samples - 1) if min_samples > 1 else 1
-
-    smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
-    X_train_resampled, y_train_resampled = smote.fit_resample(X_train_flat, y_train_flat)
-
-    print(f"Class distribution after SMOTE: {Counter(y_train_resampled)}")
-
-    # Reshape back to sequences
-    X_train_resampled = X_train_resampled.reshape(-1, SEQUENCE_LENGTH, X_train_scaled.shape[1])
-
-    # Update train_dataset with balanced data
-    train_dataset.sequences = torch.FloatTensor(X_train_resampled)
-    train_dataset.labels = torch.LongTensor(y_train_resampled)
-    print(f"Training sequences after SMOTE: {len(train_dataset)}")
-
-    # Increase batch size for GPU efficiency
-    train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True)
+    # Large batch size like reference model (512 vs 128)
+    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False, num_workers=0, pin_memory=True)
 
     # Initialize model - prioritize CUDA
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
@@ -478,10 +455,10 @@ if not os.path.isfile(model_path):
         print(f"CUDA Version: {torch.version.cuda}")
 
     input_size = X_train.shape[1]
-    d_model = 384        # Moderate embedding dimension
+    d_model = 256        # Larger capacity (reference uses 1024→256 dense layers)
     nhead = 8            # Number of attention heads (must divide d_model)
-    num_layers = 6       # Increased layers for more model capacity
-    dim_feedforward = 1536  # Moderate feedforward dimension (4x d_model)
+    num_layers = 2       # Simpler like reference (2 dense layers)
+    dim_feedforward = 1024  # Larger feedforward (4x d_model)
     num_classes = len(unique)
 
     model = TransformerClassifier(
@@ -491,19 +468,17 @@ if not os.path.isfile(model_path):
         num_layers=num_layers,
         num_classes=num_classes,
         dim_feedforward=dim_feedforward,
-        dropout=0.4  # Increased dropout to combat overfitting
+        dropout=0.4  # Match reference model's high dropout
     ).to(device)
 
     print(f"Model architecture:\n{model}")
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    # Loss function - with SMOTE, we can reduce class weights since data is balanced
-    # Still use some weighting for classes that are harder to learn
+    # Standard CrossEntropyLoss (focal loss didn't help in hist_9)
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    weight_tensor = torch.sqrt(weight_tensor)  # Reduce weight impact since SMOTE balances data
-    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)  # Increased label smoothing
-    optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.01)  # Increased weight decay (L2 regularization)
-    scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)  # Better scheduler
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.0)
+    optimizer = optim.RMSprop(model.parameters(), lr=0.001, weight_decay=0.0)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
 
     # Training loop
     num_epochs = 200
@@ -520,7 +495,7 @@ if not os.path.isfile(model_path):
         test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
         test_f1 = f1_score(y_true, y_pred, average='macro')
 
-        scheduler.step()  # CosineAnnealingWarmRestarts doesn't need metric
+        scheduler.step(test_f1)  # ReduceLROnPlateau needs metric
 
         print(f"Epoch [{epoch+1}/{num_epochs}], "
               f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, "

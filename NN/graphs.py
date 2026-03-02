@@ -5,6 +5,7 @@ import seaborn as sns
 import matplotlib as mpl
 import numpy as np
 from sklearn.metrics import confusion_matrix
+import pandas as pd
 
 def kernel_heatmap_2d(conv_layer : torch.nn.modules.Conv1d, output_path : str, n_kernels):
     
@@ -24,9 +25,10 @@ def kernel_heatmap_2d(conv_layer : torch.nn.modules.Conv1d, output_path : str, n
 
     plt.savefig(output_path)
 
-def loss_over_epochs_lineplot(train_loss, test_loss,output_path : str):
+def loss_over_epochs_lineplot(train_loss, test_loss, output_path : str):
     epoch = len(train_loss)
     figure = plt.figure(figsize = (10,6))
+    plt.ylim((0,5))
     plt.plot(train_loss, label = "Train loss")
     plt.plot(test_loss, label = "Test loss")
     plt.title(f"loss vs epochs")
@@ -35,6 +37,22 @@ def loss_over_epochs_lineplot(train_loss, test_loss,output_path : str):
     plt.ylabel("loss")
     plt.savefig(output_path)
     plt.close(figure)
+
+def f1_over_epochs(f1_dataframe : pd.DataFrame, behaviors : dict[str : int], output_path : str):
+
+    for blub in ["train", "test"]:
+        figure = plt.figure(figsize = (10,6))
+        plt.title(f"{blub}_f1_scores_over_epochs")
+        plt.xlabel("epoch")
+        plt.ylabel("f1 score")
+        plt.ylim((0,1.5))
+
+        for behavior in behaviors.keys():
+            plt.plot(f1_dataframe.loc[:, f"f1_{behavior}_{blub}"], label = f"f1 score {behavior}")
+        
+        plt.legend()
+        plt.savefig(output_path[:-4] + f"_{blub}" + output_path[-4:])
+        plt.close(figure)
 
 def plot_confusion_matrix(y_true, y_pred, behaviors : dict, output_path : str):
         
@@ -48,7 +66,7 @@ def plot_confusion_matrix(y_true, y_pred, behaviors : dict, output_path : str):
         print(cm)
 
         # Confusion Matrix Plot
-        plt.figure(figsize=(8, 6))
+        plt.figure(figsize=(10, 8))
         sns.heatmap(
             cmn,
             annot=True,           # Show numbers in cells
@@ -56,7 +74,8 @@ def plot_confusion_matrix(y_true, y_pred, behaviors : dict, output_path : str):
             cmap='Blues',         # Color scheme
             xticklabels=behavior_names,   # Label x-axis with class names in correct order
             yticklabels=behavior_names,   # Label y-axis with class names in correct order
-            cbar_kws={'label': 'Proportion'}
+            cbar_kws={'label': 'Proportion'},
+            vmin = 0, vmax = 1
         )
         plt.title('Confusion Matrix ', fontsize=16, fontweight='bold')
         plt.ylabel('True Label', fontsize=12, labelpad=15)
@@ -107,7 +126,7 @@ def kernel_heatmap_3d(
             ax=axes[i],
             cmap="viridis",
             center=0,
-            vmin = -0.25, vmax = 0.25
+            vmin = -1, vmax = 1
         )
         axes[i].set_title(f"Depth slice {i}")
         axes[i].axis("off")

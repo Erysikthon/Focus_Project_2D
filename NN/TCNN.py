@@ -13,6 +13,8 @@ from graphs import kernel_heatmap_3d
 from graphs import loss_over_epochs_lineplot
 from graphs import plot_confusion_matrix
 
+printo = False
+
 import torch
 import torch.nn as nn
 
@@ -20,56 +22,66 @@ class TCNN(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.conv3d_1 = nn.Conv3d(1, 25, (9, 9, 9), (1, 2, 2), padding=0)
+        self.conv3d_1 = nn.Conv3d(1, 30, (5, 5, 5), (1, 2, 2), padding=0)
+        self.bn1 = nn.BatchNorm3d(30)
         self.relu_1 = nn.ReLU()
-        self.batchnorm_1 = nn.BatchNorm3d(25, momentum=0.1)
 
-        self.conv3d_2 = nn.Conv3d(25, 44, (5, 5, 5), (1, 1, 1), padding=0)
+        self.conv3d_2 = nn.Conv3d(30, 80, (5, 5, 5), (1, 1, 1), padding=0)
+        self.bn2 = nn.BatchNorm3d(80)
         self.relu_2 = nn.ReLU()
         self.maxpool3d_2 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
 
-        self.conv3d_3 = nn.Conv3d(44, 64, (3, 3, 3), (1, 1, 1), padding=0)
+        self.conv3d_3 = nn.Conv3d(80, 140, (5, 3, 3), (1, 1, 1), padding=0)
+        self.bn3 = nn.BatchNorm3d(140)
         self.relu_3 = nn.ReLU()
-        self.batchnorm_3 = nn.BatchNorm3d(64, momentum=0.1)
-        self.maxpool3d_3 = nn.MaxPool3d((1, 4, 4), (1, 2, 2))
+        self.maxpool3d_3 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
 
-        # We'll initialize this later dynamically based on conv output
-        self.fc_4 = nn.Linear(64*21*28, 5120)
+        self.fc_4 = nn.Linear(140*15*7, 4800)
         self.relu_4 = nn.ReLU()
-        self.fc_5 = nn.Linear(5120, 720)
-        self.relu_5 = nn.ReLU()
-        self.fc_6 = nn.Linear(720, 4)
+        self.dropout_4 = nn.Dropout(0.3)
+
+        self.fc_5 = nn.Linear(4800, 5)
 
     def forward(self, x):
+
+        if printo:
+            B, C, D, H, W = x.shape
+            print(C, H, W)
+
         x = self.conv3d_1(x)
+        x = self.bn1(x)
         x = self.relu_1(x)
-        x = self.batchnorm_1(x)
+
+        if printo:
+            B, C, D, H, W = x.shape
+            print(C, H, W)
 
         x = self.conv3d_2(x)
+        x = self.bn2(x)
         x = self.relu_2(x)
         x = self.maxpool3d_2(x)
 
+        if printo:
+            B, C, D, H, W = x.shape
+            print(C, H, W)
+
         x = self.conv3d_3(x)
+        x = self.bn3(x)
         x = self.relu_3(x)
-        x = self.batchnorm_3(x)
         x = self.maxpool3d_3(x)
 
         B, C, D, H, W = x.shape
+        if printo:
+            print(C, H, W)
 
-        #print(C, H, W)
-
-        # Flatten channels + spatial dimensions for each time step
         x = x.permute(0, 2, 1, 3, 4)  # [B, D, C, H, W]
         x = x.reshape(B, D, C*H*W)    # [B, D, C*H*W]
         
-        # Apply FC to each time step
         x = self.fc_4(x)
         x = self.relu_4(x)
+        x = self.dropout_4(x)
 
         x = self.fc_5(x)
-        x = self.relu_5(x)
-
-        x = self.fc_6(x)
 
         x = x.permute(0, 2, 1)
 

@@ -24,15 +24,7 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
 
     frame_idx = 0
     pred_idx = 0
-
-    print(f"Processing video: {video_path}")
-    print(f"Video dimensions: {width}x{height}")
-    print(f"FPS: {fps}")
-    print(f"Frame offset: {frame_offset}")
-    print(f"Total predictions: {len(predictions)}")
-    if true_labels is not None:
-        print(f"Total true labels: {len(true_labels)}")
-    with tqdm(desc = colors.CYAN +"    test" + colors.ENDC, total = 180, ascii = True) as pbar:
+    with tqdm(desc = colors.CYAN +"    annotating" + colors.ENDC, total = 180, ascii = True) as pbar:
         while cap.isOpened():
             ret, frame = cap.read()
 
@@ -43,9 +35,9 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
             if frame_idx >= frame_offset and pred_idx < len(predictions):
                 prediction = predictions.iloc[pred_idx, 0]
 
-                # Configure text appearance (adapted for 200x200)
+                # Configure text appearance (adapted for 70x150)
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.4
+                font_scale = 0.3
                 thickness = 1
 
                 # Determine color based on match with true label
@@ -56,15 +48,15 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
                     color = (0, 255, 0)
 
                 # Add prediction text
-                pred_text = f"Prediction: {prediction}"
+                pred_text = f"Pred: {prediction}"
                 (text_width, text_height), _ = cv2.getTextSize(
                     pred_text, font, font_scale, thickness
                 )
                 cv2.rectangle(
-                    frame, (5, 5), (5 + text_width, 5 + text_height), (0, 0, 0), -1
+                    frame, (2, 2), (2 + text_width, 2 + text_height), (0, 0, 0), -1
                 )
                 cv2.putText(
-                    frame, pred_text, (5, 5 + text_height),
+                    frame, pred_text, (2, 2 + text_height),
                     font, font_scale, color, thickness
                 )
 
@@ -76,44 +68,44 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
                     )
                     cv2.rectangle(
                         frame,
-                        (5, 5 + text_height),
-                        (5 + text_width3, 5 + text_height + text_height3),
+                        (2, 3 + text_height),
+                        (2 + text_width3, 2 + text_height + text_height3),
                         (0, 0, 0),
                         -1,
                     )
                     cv2.putText(
                         frame, true_text,
-                        (5, 5 + text_height + text_height3),
+                        (2, 2 + text_height + text_height3),
                         font, font_scale, (0, 255, 0), thickness
                     )
 
-                # Frame number (bottom-left, adapted for 200x200)
-                frame_text = f"Frame: {frame_idx}"
+                # Frame number (bottom-left, adapted for 70x150)
+                frame_text = f"F: {frame_idx}"
                 (text_width2, text_height2), _ = cv2.getTextSize(
-                    frame_text, font, 0.4, 1
+                    frame_text, font, 0.3, 1
                 )
                 cv2.rectangle(
                     frame,
-                    (5, 200 - text_height2 - 5),
-                    (5 + text_width2, 200 - 5),
+                    (2, 140 - text_height2 - 2),
+                    (2 + text_width2, 140 - 2),
                     (0, 0, 0),
                     -1,
                 )
                 cv2.putText(
                     frame, frame_text,
-                    (5, 200 - 5),
-                    font, 0.35, (255, 255, 255), 1
+                    (2, 140 - 2),
+                    font, 0.3, (255, 255, 255), 1
                 )
 
                 pred_idx += 1
             else:
-                # No prediction available for this frame (adapted for 200x200)
-                label_text = "No prediction"
+                # No prediction available for this frame (adapted for 70x150)
+                label_text = "No pred"
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 cv2.putText(
                     frame, label_text,
-                    (10, 25),
-                    font, 0.6, (0, 0, 255), 1
+                    (5, 15),
+                    font, 0.35, (0, 0, 255), 1
                 )
 
             # Write frame to output
@@ -122,12 +114,10 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
 
             if frame_idx % 100 == 0:
                 pbar.update()
-
     # Release everything
     cap.release()
     out.release()
     cv2.destroyAllWindows()
 
-    print(f"Done! Annotated video saved to: {output_path}")
-    print(f"Total frames processed: {frame_idx}")
+
 

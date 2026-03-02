@@ -12,6 +12,8 @@ from pipeline_code.model_tools import video_train_test_split
 from pipeline_code.filter_and_preprocess import collinearity_filter
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report, f1_score, confusion_matrix
+from imblearn.over_sampling import SMOTE
+from collections import Counter
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -25,7 +27,7 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_hist_3"
+DATASET_VERSION = "Transformer_hist_2"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
@@ -439,6 +441,31 @@ if not os.path.isfile(model_path):
 
     print(f"Total training sequences: {len(train_dataset)}, test sequences: {len(test_dataset)}")
 
+    # Apply SMOTE to balance training data
+    print("\n=== Applying SMOTE for class balancing ===")
+    print(f"Class distribution before SMOTE: {Counter(train_dataset.labels.numpy())}")
+
+    # Flatten sequences for SMOTE (SMOTE works on 2D data)
+    X_train_flat = train_dataset.sequences.reshape(len(train_dataset.sequences), -1).numpy()
+    y_train_flat = train_dataset.labels.numpy()
+
+    # Apply SMOTE with k_neighbors adjusted for smallest class
+    min_samples = min(Counter(y_train_flat).values())
+    k_neighbors = min(5, min_samples - 1) if min_samples > 1 else 1
+
+    smote = SMOTE(random_state=42, k_neighbors=k_neighbors)
+    X_train_resampled, y_train_resampled = smote.fit_resample(X_train_flat, y_train_flat)
+
+    print(f"Class distribution after SMOTE: {Counter(y_train_resampled)}")
+
+    # Reshape back to sequences
+    X_train_resampled = X_train_resampled.reshape(-1, SEQUENCE_LENGTH, X_train_scaled.shape[1])
+
+    # Update train_dataset with balanced data
+    train_dataset.sequences = torch.FloatTensor(X_train_resampled)
+    train_dataset.labels = torch.LongTensor(y_train_resampled)
+    print(f"Training sequences after SMOTE: {len(train_dataset)}")
+
     # Increase batch size for GPU efficiency
     train_loader = DataLoader(train_dataset, batch_size=128, shuffle=True, num_workers=0, pin_memory=True)
     test_loader = DataLoader(test_dataset, batch_size=128, shuffle=False, num_workers=0, pin_memory=True)
@@ -464,16 +491,18 @@ if not os.path.isfile(model_path):
         num_layers=num_layers,
         num_classes=num_classes,
         dim_feedforward=dim_feedforward,
-        dropout=0.15  # Moderate dropout
+        dropout=0.4  # Increased dropout to combat overfitting
     ).to(device)
 
     print(f"Model architecture:\n{model}")
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    # Weighted loss for imbalanced classes
+    # Loss function - with SMOTE, we can reduce class weights since data is balanced
+    # Still use some weighting for classes that are harder to learn
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.05)  # Reduced label smoothing
-    optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.005)  # Lower LR for stability
+    weight_tensor = torch.sqrt(weight_tensor)  # Reduce weight impact since SMOTE balances data
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)  # Increased label smoothing
+    optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.01)  # Increased weight decay (L2 regularization)
     scheduler = optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=10, T_mult=2)  # Better scheduler
 
     # Training loop
@@ -550,7 +579,7 @@ else:
         num_layers=num_layers,
         num_classes=num_classes,
         dim_feedforward=dim_feedforward,
-        dropout=0.15
+        dropout=0.4
     ).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
 

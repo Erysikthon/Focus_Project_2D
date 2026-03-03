@@ -25,10 +25,10 @@ import numpy as np
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "LSTM_rescaled_1"
+DATASET_VERSION = "LSTM_best_test"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_filtered.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/LSTM_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
@@ -63,6 +63,12 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
     for csv_file in csv_files:
         video_handle = os.path.splitext(csv_file)[0]  # Use filename without extension as handle
+
+        # Skip MBT videos (uncomment to exclude MBT videos from training)
+        # if "MBT" in video_handle:
+        #     print(f"Skipping MBT video: {video_handle}")
+        #     continue
+
         csv_path = os.path.join(collection_path, csv_file)
         tracking = Tracking.from_yolo3r(filepath=csv_path, handle=video_handle, fps=fps)
 
@@ -381,7 +387,7 @@ def evaluate(model, dataloader, device):
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
-    manual_test_video_ids = None
+    manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
     #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
     if manual_test_video_ids is not None:
@@ -489,7 +495,7 @@ if not os.path.isfile(model_path):
         hidden_size=hidden_size,
         num_layers=num_layers,
         num_classes=num_classes,
-        dropout=0.3  # Balanced dropout
+        dropout=0.4  # Moderate increase to reduce overfitting
     ).to(device)
 
     print(f"Model architecture:\n{model}")
@@ -498,7 +504,7 @@ if not os.path.isfile(model_path):
     # Focal Loss for imbalanced classes
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
     criterion = FocalLoss(alpha=weight_tensor, gamma=2.0)  # Balanced focal loss gamma
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)  # Light weight decay
+    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=3e-5)  # Slightly increased weight decay
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
 
     # Training loop

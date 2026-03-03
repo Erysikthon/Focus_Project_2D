@@ -27,10 +27,10 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_hist_8"
+DATASET_VERSION = "Transformer_best_test_8"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_hist.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_hist_filtered.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/Transformer_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
@@ -365,7 +365,9 @@ def evaluate(model, dataloader, device):
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
-    manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
+    manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
+    #manual_test_video_ids = ['3278_21min_behaviour_2023-01-19T11_08_30', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-03-09T10_37_32', 'MBT1-M15', 'T10', 'BehavioralCamera2023-03-09T11_04_40']
+    #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
     if manual_test_video_ids is not None:
         # Use manually specified test videos
@@ -478,7 +480,7 @@ if not os.path.isfile(model_path):
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
     criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.0)
     optimizer = optim.RMSprop(model.parameters(), lr=0.001, weight_decay=0.0)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5, verbose=True)
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
 
     # Training loop
     num_epochs = 200
@@ -526,15 +528,15 @@ if not os.path.isfile(model_path):
                 break
 
     # Load best model
-    checkpoint = torch.load(model_path, weights_only=False)
+    checkpoint = torch.load(model_path, weights_only=False, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
 
 else:
     # Load existing model
     import joblib
 
-    checkpoint = torch.load(model_path, weights_only=False)
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+    checkpoint = torch.load(model_path, weights_only=False, map_location=device)
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
 

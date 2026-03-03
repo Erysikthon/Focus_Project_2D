@@ -16,12 +16,12 @@ from graphs import f1_over_epochs
 from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
-r = 13
-epoch = 0
+r = 27
+epoch = 68
 name = f"TCNN_{epoch}.pt"
-video = False
+video = True
 kernels = True
-predict = False
+predict = True
 debug = False 
 
 if torch.backends.mps.is_available():
@@ -62,12 +62,12 @@ labels_folder = "./data/labels"
 behaviors = {"background" : 0, "Supportedrearing" : 1, "Unsupportedrearing" : 2, "Grooming" : 3, "Digging" : 4}
 
 train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 40, 
-                              undersampling_dict = {"background" : 0.1, "Supportedrearing" : 0.5, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
+                              undersampling_dict = {"background" : 0.2, "Supportedrearing" : 0.6, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
                               random_state = None, identity = "TRAIN randomized dataset", debug = debug)
 test_set = SingleVideoDatasetCollection(features_folder, labels_folder, video_names_test, behaviors,s = 1, r = r, identity = "TEST single dataset collection")
 
 train_data_loader = DataLoader(train_set, 64)
-test_data_loader = DataLoader(test_set, 64)
+test_data_loader = DataLoader(test_set, 128)
 
 """
 train_set.__getitem__(0, debug = True)
@@ -93,9 +93,9 @@ else:
     stats = pd.DataFrame(columns = cols)
     stats.to_csv(f"./output/stats.csv")
 
-class_weights = torch.tensor(np.array([1, 1, 1, 1, 0.9], dtype = np.float32)).to(mps_device)
+class_weights = torch.tensor(np.array([0.5, 1, 1.5, 1, 1], dtype = np.float32)).to(mps_device)
 loss_function = nn.CrossEntropyLoss(class_weights)
-optimizer = torch.optim.AdamW(network.parameters(), lr = 0.05)
+optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01)
 #torch.nn.init.uniform_(network.fc_4.weight, 0.1, 0.3) 
 
 if kernels and epoch == 0:
@@ -104,16 +104,25 @@ if kernels and epoch == 0:
         kernel_heatmap_3d(network.conv3d_2, f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         kernel_heatmap_3d(network.conv3d_3, f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
 
-for epoch in range(epoch+1,201):
+for epoch in range(epoch+1,2001):
+
+    if epoch >= 120:
+        class_weights = torch.tensor(np.array([0.5, 1, 1.5, 1, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.4, "Supportedrearing" : 0.7, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.6}
+
+    if epoch >= 170:
+        class_weights = torch.tensor(np.array([0.25, 1, 2.5, 1.2, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.7, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.8}
+
+    if epoch >= 320:
+        class_weights = torch.tensor(np.array([0.15, 1.3, 4, 2.5, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
 
     if epoch % 3 == 0:
         train_data_loader.dataset.undersample()
 
     print(colors.GREEN + f"\nEpoch:" + colors.ENDC + f" {epoch}")
     train_mean_loss, y_true_train, y_pred_train  = train_loop(train_data_loader, network, loss_function, optimizer, mps_device)
-
-    if predict:
-        test_mean_loss, y_true_test, y_pred_test = test_loop(test_data_loader, network, loss_function, mps_device)
     
     if epoch % 1 == 0:
         print(colors.WARNING + f"\nclassification report epoch: " + colors.ENDC + f" {epoch}")
@@ -122,35 +131,38 @@ for epoch in range(epoch+1,201):
         print(classification_report(y_true_train, y_pred_train, labels = list(behaviors.values()), target_names=behaviors.keys()))
         plot_confusion_matrix(y_true_train, y_pred_train, behaviors, f"./output/train_confusion_matrix_at_{epoch}.png")
 
-        if predict:
-            print(colors.CYAN + f"\n    test: " + colors.ENDC)
-            print(classification_report(y_true_test, y_pred_test, labels = list(behaviors.values()), target_names=behaviors.keys()))
-            plot_confusion_matrix(y_true_test, y_pred_test, behaviors, f"./output/test_confusion_matrix_at_{epoch}.png")
-
-            pd.DataFrame(y_pred_test).to_csv(f"./output/y_pred_{epoch}.csv")
-            pd.DataFrame(y_true_test).to_csv(f"./output/y_true_{epoch}.csv")
-
-            row_to_add = [train_mean_loss]
-            row_to_add.extend(f1_score(y_true_train, y_pred_train, average = None,  labels = list(behaviors.values())))
-            row_to_add.append(test_mean_loss)
-            row_to_add.extend(f1_score(y_true_test, y_pred_test, average = None,  labels = list(behaviors.values())))
-            stats.loc[epoch] = row_to_add
-            stats.to_csv(f"./output/stats.csv")
-
-            loss_over_epochs_lineplot(stats.loc[:, "loss_train"], stats.loc[:, "loss_test"], f"./output/loss_at_{epoch}.png")
-
-            f1_cols = []
-            for behavior in behaviors.keys():
-                f1_cols.append(f"f1_{behavior}_train")
-                f1_cols.append(f"f1_{behavior}_test")
-            f1_over_epochs(stats.loc[:, f1_cols], behaviors, f"./output/f1_score_at_{epoch}.png")
-
         if kernels:
             for i in range(0, 5):
                 kernel_heatmap_3d(network.conv3d_1, f"./output/conv3d_1_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
                 kernel_heatmap_3d(network.conv3d_2, f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
                 kernel_heatmap_3d(network.conv3d_3, f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        if video and predict:
+        
+    if epoch % 5 == 0 and predict:
+        test_mean_loss, y_true_test, y_pred_test = test_loop(test_data_loader, network, loss_function, mps_device)
+
+        print(colors.CYAN + f"\n    test: " + colors.ENDC)
+        print(classification_report(y_true_test, y_pred_test, labels = list(behaviors.values()), target_names=behaviors.keys()))
+        plot_confusion_matrix(y_true_test, y_pred_test, behaviors, f"./output/test_confusion_matrix_at_{epoch}.png")
+
+        pd.DataFrame(y_pred_test).to_csv(f"./output/y_pred_{epoch}.csv")
+        pd.DataFrame(y_true_test).to_csv(f"./output/y_true_{epoch}.csv")
+
+        row_to_add = [train_mean_loss]
+        row_to_add.extend(f1_score(y_true_train, y_pred_train, average = None,  labels = list(behaviors.values())))
+        row_to_add.append(test_mean_loss)
+        row_to_add.extend(f1_score(y_true_test, y_pred_test, average = None,  labels = list(behaviors.values())))
+        stats.loc[epoch] = row_to_add
+        stats.to_csv(f"./output/stats.csv")
+
+        loss_over_epochs_lineplot(stats.loc[:, "loss_train"], stats.loc[:, "loss_test"], f"./output/loss_at_{epoch}.png")
+
+        f1_cols = []
+        for behavior in behaviors.keys():
+            f1_cols.append(f"f1_{behavior}_train")
+            f1_cols.append(f"f1_{behavior}_test")
+        f1_over_epochs(stats.loc[:, f1_cols], behaviors, f"./output/f1_score_at_{epoch}.png")
+
+        if video:
             offset = 0
             for dataset in test_data_loader.dataset.collection:
                 dataset : SingleVideoDataset

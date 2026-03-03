@@ -126,7 +126,7 @@ def kernel_heatmap_3d(
             ax=axes[i],
             cmap="viridis",
             center=0,
-            vmin = -1, vmax = 1
+            vmin = -0.3, vmax = 0.3
         )
         axes[i].set_title(f"Depth slice {i}")
         axes[i].axis("off")

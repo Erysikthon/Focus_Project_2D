@@ -23,30 +23,30 @@ class TCNN(nn.Module):
         super().__init__()
 
         self.conv3d_1 = nn.Conv3d(1, 30, (5, 5, 5), (1, 2, 2), padding=0)
-        self.bn1 = nn.BatchNorm3d(30)
+        self.bn1 = nn.GroupNorm(5, 30)
         self.relu_1 = nn.ReLU()
 
-        self.conv3d_2 = nn.Conv3d(30, 80, (5, 5, 5), (1, 1, 1), padding=0)
-        self.bn2 = nn.BatchNorm3d(80)
+        self.conv3d_2 = nn.Conv3d(30, 60, (11, 5, 5), (1, 1, 1), padding=0)
+        self.bn2 = nn.GroupNorm(5, 60)
         self.relu_2 = nn.ReLU()
         self.maxpool3d_2 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
 
-        self.conv3d_3 = nn.Conv3d(80, 140, (5, 3, 3), (1, 1, 1), padding=0)
-        self.bn3 = nn.BatchNorm3d(140)
+        self.conv3d_3 = nn.Conv3d(60, 100, (13, 5, 5), (1, 1, 1), padding=0)
+        self.bn3 = nn.GroupNorm(5, 100)
         self.relu_3 = nn.ReLU()
         self.maxpool3d_3 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
 
-        self.fc_4 = nn.Linear(140*15*7, 4800)
+        self.fc_4 = nn.Linear(100*14*6, 5000)
         self.relu_4 = nn.ReLU()
         self.dropout_4 = nn.Dropout(0.3)
 
-        self.fc_5 = nn.Linear(4800, 5)
+        self.fc_5 = nn.Linear(5000, 5)
 
     def forward(self, x):
 
         if printo:
             B, C, D, H, W = x.shape
-            print(C, H, W)
+            print(f"{C}*{H}*{W}")
 
         x = self.conv3d_1(x)
         x = self.bn1(x)
@@ -54,7 +54,7 @@ class TCNN(nn.Module):
 
         if printo:
             B, C, D, H, W = x.shape
-            print(C, H, W)
+            print(f"{C}*{H}*{W}")
 
         x = self.conv3d_2(x)
         x = self.bn2(x)
@@ -63,7 +63,7 @@ class TCNN(nn.Module):
 
         if printo:
             B, C, D, H, W = x.shape
-            print(C, H, W)
+            print(f"{C}*{H}*{W}")
 
         x = self.conv3d_3(x)
         x = self.bn3(x)
@@ -72,7 +72,7 @@ class TCNN(nn.Module):
 
         B, C, D, H, W = x.shape
         if printo:
-            print(C, H, W)
+            print(f"{C}*{H}*{W}")
 
         x = x.permute(0, 2, 1, 3, 4)  # [B, D, C, H, W]
         x = x.reshape(B, D, C*H*W)    # [B, D, C*H*W]

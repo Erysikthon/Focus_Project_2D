@@ -1,1 +1,3 @@
 = ['3278_21min_behaviour_2023-01-19T11_08_30', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-03-09T10_37_32', 'MBT1-M15', 'T10', 'BehavioralCamera2023-03-09T11_04_40']
+
+manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']

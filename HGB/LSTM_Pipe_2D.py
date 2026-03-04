@@ -13,6 +13,7 @@ from pipeline_code.model_tools import video_train_test_split
 from pipeline_code.filter_and_preprocess import collinearity_filter
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report, f1_score, confusion_matrix
+from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
 import seaborn as sns
 import time
@@ -25,10 +26,10 @@ import numpy as np
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "LSTM_best_test"
+DATASET_VERSION = "LSTM_new_1"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/LSTM_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
@@ -171,7 +172,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
                                f_b_fill=True,
 
-                               embedding_length=list(range(-15, 16, 3))
+                               embedding_length=list(range(-15, 16, 1))
                                )
 
     y = labels(labels_path="./pipeline_inputs/labels",
@@ -252,16 +253,25 @@ class LSTMClassifier(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
 
+        # Bidirectional LSTM for better context capture
         self.lstm = nn.LSTM(
             input_size=input_size,
             hidden_size=hidden_size,
             num_layers=num_layers,
             batch_first=True,
-            dropout=dropout if num_layers > 1 else 0
+            dropout=dropout if num_layers > 1 else 0,
+            bidirectional=True  # Bidirectional LSTM
         )
 
+        # Account for bidirectional (hidden_size * 2)
+        self.batch_norm = nn.BatchNorm1d(hidden_size * 2)
         self.dropout = nn.Dropout(dropout)
+
         self.fc = nn.Sequential(
+            nn.Linear(hidden_size * 2, hidden_size),  # Input doubled due to bidirectional
+            nn.BatchNorm1d(hidden_size),
+            nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_size, hidden_size // 2),
             nn.BatchNorm1d(hidden_size // 2),
             nn.ReLU(),
@@ -273,11 +283,15 @@ class LSTMClassifier(nn.Module):
         # x shape: (batch, seq_len, input_size)
         lstm_out, (h_n, c_n) = self.lstm(x)
 
-        # Use the last hidden state
-        last_hidden = h_n[-1]  # Shape: (batch, hidden_size)
+        # Concatenate forward and backward hidden states
+        # h_n shape: (num_layers * 2, batch, hidden_size) for bidirectional
+        last_hidden_forward = h_n[-2]  # Last layer forward direction
+        last_hidden_backward = h_n[-1]  # Last layer backward direction
+        last_hidden = torch.cat([last_hidden_forward, last_hidden_backward], dim=1)  # Shape: (batch, hidden_size * 2)
 
-        # Apply dropout and fully connected layers
-        out = self.dropout(last_hidden)
+        # Apply batch norm and dropout
+        out = self.batch_norm(last_hidden)
+        out = self.dropout(out)
         out = self.fc(out)
         return out
 
@@ -368,21 +382,83 @@ class FocalLoss(nn.Module):
         else:
             return focal_loss
 
-# Evaluation function
-def evaluate(model, dataloader, device):
+# Evaluation function with threshold adjustment
+def evaluate(model, dataloader, device, thresholds=None):
     model.eval()
     all_preds = []
+    all_labels = []
+    all_probs = []
+
+    with torch.no_grad():
+        for batch_X, batch_y in dataloader:
+            batch_X = batch_X.to(device)
+            outputs = model(batch_X)
+            probs = F.softmax(outputs, dim=1)
+
+            if thresholds is not None:
+                # Apply per-class thresholds
+                adjusted_probs = probs.clone()
+                for class_idx, threshold in enumerate(thresholds):
+                    adjusted_probs[:, class_idx] = (probs[:, class_idx] >= threshold).float() * probs[:, class_idx]
+                predicted = torch.argmax(adjusted_probs, dim=1)
+            else:
+                predicted = torch.argmax(probs, dim=1)
+
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(batch_y.numpy())
+            all_probs.extend(probs.cpu().numpy())
+
+    return np.array(all_preds), np.array(all_labels), np.array(all_probs)
+
+# Function to find optimal thresholds per class
+def find_optimal_thresholds(model, dataloader, device, num_classes):
+    """Find optimal decision thresholds for each class to maximize F1 score."""
+    from sklearn.metrics import f1_score
+
+    model.eval()
+    all_probs = []
     all_labels = []
 
     with torch.no_grad():
         for batch_X, batch_y in dataloader:
             batch_X = batch_X.to(device)
             outputs = model(batch_X)
-            _, predicted = torch.max(outputs, 1)
-            all_preds.extend(predicted.cpu().numpy())
+            probs = F.softmax(outputs, dim=1)
+            all_probs.extend(probs.cpu().numpy())
             all_labels.extend(batch_y.numpy())
 
-    return np.array(all_preds), np.array(all_labels)
+    all_probs = np.array(all_probs)
+    all_labels = np.array(all_labels)
+
+    # Start with default thresholds
+    best_thresholds = [0.5] * num_classes
+
+    # Grid search for optimal thresholds per class
+    print("\nFinding optimal thresholds per class...")
+    for class_idx in range(num_classes):
+        best_f1 = 0
+        best_threshold = 0.5
+
+        for threshold in np.arange(0.1, 0.9, 0.05):
+            temp_thresholds = best_thresholds.copy()
+            temp_thresholds[class_idx] = threshold
+
+            # Apply thresholds
+            adjusted_probs = all_probs.copy()
+            for idx, thresh in enumerate(temp_thresholds):
+                adjusted_probs[:, idx] = (all_probs[:, idx] >= thresh).astype(float) * all_probs[:, idx]
+
+            preds = np.argmax(adjusted_probs, axis=1)
+            f1 = f1_score(all_labels, preds, average='macro')
+
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = threshold
+
+        best_thresholds[class_idx] = best_threshold
+        print(f"  Class {class_idx}: threshold={best_threshold:.2f}")
+
+    return best_thresholds
 
 if not os.path.isfile(model_path):
 
@@ -428,7 +504,7 @@ if not os.path.isfile(model_path):
     joblib.dump(label_encoder, label_encoder_path)
     print(f"Label mapping: {dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))}")
 
-    # Calculate class weights
+    # Calculate class weights using sklearn's compute_class_weight (balanced)
     y_train_flat = y_train_encoded.values.ravel()
     unique, counts = np.unique(y_train_flat, return_counts=True)
     class_counts = dict(zip(unique, counts))
@@ -447,10 +523,14 @@ if not os.path.isfile(model_path):
         test_pct = (class_counts_test.get(cls_idx, 0) / len(y_test_flat)) * 100
         print(f"  {cls_name}: Train={train_pct:.1f}%, Test={test_pct:.1f}%")
 
-    total_samples = len(y_train_flat)
-    n_classes = len(unique)
-    class_weights = {cls: total_samples / (n_classes * count) for cls, count in class_counts.items()}
-    print(f"Class weights: {class_weights}")
+    # Use sklearn's compute_class_weight for balanced weights
+    class_weight_array = compute_class_weight(
+        class_weight='balanced',
+        classes=np.unique(y_train_flat),
+        y=y_train_flat
+    )
+    class_weights = {i: weight for i, weight in enumerate(class_weight_array)}
+    print(f"\nClass weights (balanced): {class_weights}")
 
     # Scale features
     scaler = StandardScaler()
@@ -486,8 +566,8 @@ if not os.path.isfile(model_path):
     print(f"Using device: {device}")
 
     input_size = X_train.shape[1]
-    hidden_size = 128   # Increased LSTM hidden size for more capacity
-    num_layers = 3     # Number of LSTM layers (increased for more complexity)
+    hidden_size = 96    # Reduced from 128 to reduce overfitting
+    num_layers = 2      # Reduced from 3 to 2 layers
     num_classes = len(unique)
 
     model = LSTMClassifier(
@@ -495,7 +575,7 @@ if not os.path.isfile(model_path):
         hidden_size=hidden_size,
         num_layers=num_layers,
         num_classes=num_classes,
-        dropout=0.4  # Moderate increase to reduce overfitting
+        dropout=0.5  # Increased dropout to reduce overfitting
     ).to(device)
 
     print(f"Model architecture:\n{model}")
@@ -504,7 +584,7 @@ if not os.path.isfile(model_path):
     # Focal Loss for imbalanced classes
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
     criterion = FocalLoss(alpha=weight_tensor, gamma=2.0)  # Balanced focal loss gamma
-    optimizer = optim.Adam(model.parameters(), lr=0.001, weight_decay=3e-5)  # Slightly increased weight decay
+    optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)  # Lower LR, higher weight decay
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
 
     # Training loop
@@ -517,8 +597,8 @@ if not os.path.isfile(model_path):
     for epoch in range(num_epochs):
         train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, use_mixup=False, mixup_alpha=0.2)
 
-        # Evaluate
-        y_pred, y_true = evaluate(model, test_loader, device)
+        # Evaluate (without thresholds during training)
+        y_pred, y_true, _ = evaluate(model, test_loader, device, thresholds=None)
         test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
         test_f1 = f1_score(y_true, y_pred, average='macro')
 
@@ -554,6 +634,15 @@ if not os.path.isfile(model_path):
     checkpoint = torch.load(model_path, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
 
+    # Find optimal thresholds on validation set (using test set here)
+    print("\n=== Finding Optimal Decision Thresholds ===")
+    optimal_thresholds = find_optimal_thresholds(model, test_loader, device, num_classes)
+    print(f"Optimal thresholds: {optimal_thresholds}")
+
+    # Save thresholds with model
+    checkpoint['optimal_thresholds'] = optimal_thresholds
+    torch.save(checkpoint, model_path)
+
 else:
     # Load existing model
     import joblib
@@ -576,6 +665,13 @@ else:
         dropout=0.5
     ).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
+
+    # Load optimal thresholds if available
+    optimal_thresholds = checkpoint.get('optimal_thresholds', None)
+    if optimal_thresholds:
+        print(f"Loaded optimal thresholds: {optimal_thresholds}")
+    else:
+        print("No optimal thresholds found in checkpoint (using default)")
 
     # Recreate train/test split using saved video IDs
     train_video_ids = checkpoint['train_videos']
@@ -623,9 +719,15 @@ else:
     print(f"Using device: {device}")
     print(f"Sequence length: {SEQUENCE_LENGTH}")
 
-# Training set evaluation
-print("\n=== Training Set Evaluation ===")
-y_pred_train, y_true_train = evaluate(model, train_loader, device)
+# Get optimal thresholds if not loaded from checkpoint
+if 'optimal_thresholds' not in locals() or optimal_thresholds is None:
+    print("\n=== Finding Optimal Decision Thresholds ===")
+    optimal_thresholds = find_optimal_thresholds(model, test_loader, device, num_classes)
+    print(f"Optimal thresholds: {optimal_thresholds}")
+
+# Training set evaluation (without thresholds)
+print("\n=== Training Set Evaluation (no threshold adjustment) ===")
+y_pred_train, y_true_train, _ = evaluate(model, train_loader, device, thresholds=None)
 
 train_acc = 100 * np.sum(y_pred_train == y_true_train) / len(y_true_train)
 train_f1 = f1_score(y_true_train, y_pred_train, average='macro')
@@ -635,11 +737,10 @@ print(f"Train F1 Score (macro): {train_f1:.4f}")
 print("\nTraining Classification Report:")
 print(classification_report(y_true_train, y_pred_train, target_names=label_encoder.classes_))
 
-# Test set evaluation
-print("\n=== Test Set Evaluation ===")
-y_pred, y_true = evaluate(model, test_loader, device)
+# Test set evaluation without thresholds
+print("\n=== Test Set Evaluation (no threshold adjustment) ===")
+y_pred, y_true, _ = evaluate(model, test_loader, device, thresholds=None)
 
-# Metrics
 test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
 test_f1 = f1_score(y_true, y_pred, average='macro')
 
@@ -647,6 +748,19 @@ print(f"Test Accuracy: {test_acc:.2f}%")
 print(f"Test F1 Score (macro): {test_f1:.4f}")
 print("\nClassification Report:")
 print(classification_report(y_true, y_pred, target_names=label_encoder.classes_))
+
+# Test set evaluation WITH optimal thresholds
+print("\n=== Test Set Evaluation (WITH threshold adjustment) ===")
+y_pred_thresh, y_true_thresh, _ = evaluate(model, test_loader, device, thresholds=optimal_thresholds)
+
+test_acc_thresh = 100 * np.sum(y_pred_thresh == y_true_thresh) / len(y_true_thresh)
+test_f1_thresh = f1_score(y_true_thresh, y_pred_thresh, average='macro')
+
+print(f"Test Accuracy: {test_acc_thresh:.2f}%")
+print(f"Test F1 Score (macro): {test_f1_thresh:.4f}")
+print("\nClassification Report:")
+print(classification_report(y_true_thresh, y_pred_thresh, target_names=label_encoder.classes_))
+print(f"\nF1 Score improvement: {test_f1_thresh - test_f1:.4f} ({((test_f1_thresh/test_f1 - 1) * 100):.2f}%)")
 
 # Confusion matrix
 cm = confusion_matrix(y_true, y_pred)

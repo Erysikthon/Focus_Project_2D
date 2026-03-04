@@ -27,10 +27,10 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_best_test_8"
+DATASET_VERSION = "Transformer_new_complex"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_filtered.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/Transformer_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
@@ -156,7 +156,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
                                f_b_fill=True,
 
-                               embedding_length=list(range(-15, 16, 3))
+                               embedding_length=list(range(-15, 16, 1))
                                )
 
     y = labels(labels_path="./pipeline_inputs/labels",
@@ -254,66 +254,100 @@ class PositionalEncoding(nn.Module):
         return self.dropout(x)
 
 
-# Transformer Classifier
+# Transformer Classifier with increased complexity
 class TransformerClassifier(nn.Module):
     def __init__(self, input_size, d_model, nhead, num_layers, num_classes, dim_feedforward=512, dropout=0.3):
         super(TransformerClassifier, self).__init__()
         self.d_model = d_model
 
-        # Input projection with layer norm
+        # Richer input projection with residual connection
         self.input_projection = nn.Sequential(
             nn.Linear(input_size, d_model),
             nn.LayerNorm(d_model),
-            nn.ReLU(),
+            nn.GELU(),
+            nn.Dropout(dropout * 0.5),
+            nn.Linear(d_model, d_model),
+            nn.LayerNorm(d_model),
+            nn.GELU(),
             nn.Dropout(dropout * 0.5)
         )
+
+        # Learnable CLS token for classification (like BERT)
+        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
 
         # Positional encoding
         self.pos_encoder = PositionalEncoding(d_model, dropout=dropout * 0.5)
 
-        # Transformer encoder
+        # Transformer encoder with more capacity
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
             nhead=nhead,
             dim_feedforward=dim_feedforward,
             dropout=dropout,
             batch_first=True,
-            activation='gelu'  # GELU works better than ReLU for transformers
+            activation='gelu'
         )
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # Simple classification head
+        # Deeper classification head with residual connections
         self.dropout = nn.Dropout(dropout)
-        self.fc = nn.Sequential(
-            nn.Linear(d_model, d_model),
-            nn.LayerNorm(d_model),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model, d_model // 2),
-            nn.LayerNorm(d_model // 2),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(d_model // 2, num_classes)
-        )
+
+        # First block
+        self.fc1 = nn.Linear(d_model, d_model)
+        self.ln1 = nn.LayerNorm(d_model)
+
+        # Second block
+        self.fc2 = nn.Linear(d_model, d_model)
+        self.ln2 = nn.LayerNorm(d_model)
+
+        # Third block
+        self.fc3 = nn.Linear(d_model, d_model // 2)
+        self.ln3 = nn.LayerNorm(d_model // 2)
+
+        # Output
+        self.fc_out = nn.Linear(d_model // 2, num_classes)
 
     def forward(self, x):
         # x shape: (batch, seq_len, input_size)
+        batch_size = x.size(0)
 
         # Project input to d_model dimensions
         x = self.input_projection(x)  # (batch, seq_len, d_model)
+
+        # Prepend CLS token
+        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, d_model)
+        x = torch.cat([cls_tokens, x], dim=1)  # (batch, seq_len+1, d_model)
 
         # Add positional encoding
         x = self.pos_encoder(x)
 
         # Transformer encoding
-        x = self.transformer_encoder(x)  # (batch, seq_len, d_model)
+        x = self.transformer_encoder(x)  # (batch, seq_len+1, d_model)
 
-        # Global average pooling over sequence dimension
-        x = x.mean(dim=1)  # (batch, d_model)
+        # Extract CLS token representation
+        x = x[:, 0]  # (batch, d_model)
 
-        # Classification
+        # Classification head with residual connections
+        identity = x
+        x = self.fc1(x)
+        x = self.ln1(x)
+        x = torch.nn.functional.gelu(x)
         x = self.dropout(x)
-        x = self.fc(x)
+        x = x + identity  # Residual connection
+
+        identity = x
+        x = self.fc2(x)
+        x = self.ln2(x)
+        x = torch.nn.functional.gelu(x)
+        x = self.dropout(x)
+        x = x + identity  # Residual connection
+
+        x = self.fc3(x)
+        x = self.ln3(x)
+        x = torch.nn.functional.gelu(x)
+        x = self.dropout(x)
+
+        x = self.fc_out(x)
         return x
 
 
@@ -457,10 +491,10 @@ if not os.path.isfile(model_path):
         print(f"CUDA Version: {torch.version.cuda}")
 
     input_size = X_train.shape[1]
-    d_model = 256        # Larger capacity (reference uses 1024→256 dense layers)
+    d_model = 512        # Increased from 256 for more capacity
     nhead = 8            # Number of attention heads (must divide d_model)
-    num_layers = 2       # Simpler like reference (2 dense layers)
-    dim_feedforward = 1024  # Larger feedforward (4x d_model)
+    num_layers = 4       # Increased from 2 for deeper learning
+    dim_feedforward = 2048  # Increased from 1024 (4x d_model)
     num_classes = len(unique)
 
     model = TransformerClassifier(
@@ -479,7 +513,7 @@ if not os.path.isfile(model_path):
     # Standard CrossEntropyLoss (focal loss didn't help in hist_9)
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
     criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.0)
-    optimizer = optim.RMSprop(model.parameters(), lr=0.001, weight_decay=0.0)
+    optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.01)  # AdamW with weight decay for larger model
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
 
     # Training loop

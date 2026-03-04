@@ -37,8 +37,8 @@ start = time.time()
 # Define dataset version
 DATASET_VERSION = "HGB_best_test_1"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_rescaled.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_filtered.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
 y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
 model_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}.pkl"
 
@@ -202,7 +202,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
                                f_b_fill=True,
 
-                               embedding_length=list(range(-15, 16, 3))
+                               embedding_length=list(range(-15, 16, 1))
                                )
 
     y = labels(labels_path="./pipeline_inputs/labels",

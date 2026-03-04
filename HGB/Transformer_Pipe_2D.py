@@ -27,7 +27,7 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_new_complex"
+DATASET_VERSION = "Transformer_new_complex_2"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
@@ -352,7 +352,7 @@ class TransformerClassifier(nn.Module):
 
 
 # Training function
-def train_epoch(model, dataloader, criterion, optimizer, device):
+def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
     model.train()
     total_loss = 0
     correct = 0
@@ -370,6 +370,10 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
 
         optimizer.step()
+
+        # Step scheduler per batch for warmup+cosine schedule
+        if scheduler is not None:
+            scheduler.step()
 
         total_loss += loss.item()
         _, predicted = torch.max(outputs, 1)
@@ -441,7 +445,7 @@ if not os.path.isfile(model_path):
     joblib.dump(label_encoder, label_encoder_path)
     print(f"Label mapping: {dict(zip(label_encoder.classes_, label_encoder.transform(label_encoder.classes_)))}")
 
-    # Calculate class weights with sqrt scaling for smoother weighting
+    # Calculate class weights with stronger weighting for minority classes
     y_train_flat = y_train_encoded.values.ravel()
     unique, counts = np.unique(y_train_flat, return_counts=True)
     class_counts = dict(zip(unique, counts))
@@ -449,9 +453,9 @@ if not os.path.isfile(model_path):
 
     total_samples = len(y_train_flat)
     n_classes = len(unique)
-    # Use sqrt of inverse frequency for smoother weighting
-    class_weights = {cls: np.sqrt(total_samples / (n_classes * count)) for cls, count in class_counts.items()}
-    print(f"Class weights (sqrt scaled): {class_weights}")
+    # Use stronger weighting (between sqrt and full inverse) via power of 0.7
+    class_weights = {cls: (total_samples / (n_classes * count)) ** 0.7 for cls, count in class_counts.items()}
+    print(f"Class weights (0.7 power scaled): {class_weights}")
 
     # Scale features
     scaler = StandardScaler()
@@ -469,9 +473,9 @@ if not os.path.isfile(model_path):
     # Save scaler
     joblib.dump(scaler, scaler_path)
 
-    # Create sequence datasets with uniform stride
-    SEQUENCE_LENGTH = 30  # Use 30 frames (1 second at 30 fps)
-    STRIDE = 5  # Optimal stride for hist_8
+    # Create sequence datasets with longer sequences and smaller stride
+    SEQUENCE_LENGTH = 60  # Increased from 30 (2 seconds at 30 fps for more context)
+    STRIDE = 3  # Reduced from 5 for more training data
     print(f"Creating sequences with length {SEQUENCE_LENGTH} and stride {STRIDE}...")
     train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
     test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
@@ -491,10 +495,10 @@ if not os.path.isfile(model_path):
         print(f"CUDA Version: {torch.version.cuda}")
 
     input_size = X_train.shape[1]
-    d_model = 512        # Increased from 256 for more capacity
+    d_model = 768        # Further increased from 512 for more capacity
     nhead = 8            # Number of attention heads (must divide d_model)
-    num_layers = 4       # Increased from 2 for deeper learning
-    dim_feedforward = 2048  # Increased from 1024 (4x d_model)
+    num_layers = 6       # Further increased from 4 for deeper learning
+    dim_feedforward = 3072  # Increased from 2048 (4x d_model)
     num_classes = len(unique)
 
     model = TransformerClassifier(
@@ -510,30 +514,43 @@ if not os.path.isfile(model_path):
     print(f"Model architecture:\n{model}")
     print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
-    # Standard CrossEntropyLoss (focal loss didn't help in hist_9)
+    # CrossEntropyLoss with label smoothing for better generalization
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.0)
-    optimizer = optim.AdamW(model.parameters(), lr=0.0005, weight_decay=0.01)  # AdamW with weight decay for larger model
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=5)
+    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
+
+    # Optimizer with adjusted learning rate for larger model
+    optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.01, betas=(0.9, 0.999))
+
+    # Cosine annealing with warmup
+    warmup_epochs = 10
+    total_steps = num_epochs * len(train_loader)
+    warmup_steps = warmup_epochs * len(train_loader)
+
+    def lr_lambda(current_step):
+        if current_step < warmup_steps:
+            return float(current_step) / float(max(1, warmup_steps))
+        progress = float(current_step - warmup_steps) / float(max(1, total_steps - warmup_steps))
+        return max(0.1, 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     # Training loop
-    num_epochs = 200
+    num_epochs = 150  # Reduced since cosine schedule will naturally decay
     best_f1 = 0.0
-    patience = 15
+    patience = 20  # Increased patience for larger model
     patience_counter = 0
     min_delta = 0.001  # Minimum improvement to reset patience
 
     for epoch in range(num_epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
         # Evaluate
         y_pred, y_true = evaluate(model, test_loader, device)
         test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
         test_f1 = f1_score(y_true, y_pred, average='macro')
 
-        scheduler.step(test_f1)  # ReduceLROnPlateau needs metric
-
-        print(f"Epoch [{epoch+1}/{num_epochs}], "
+        current_lr = optimizer.param_groups[0]['lr']
+        print(f"Epoch [{epoch+1}/{num_epochs}], LR: {current_lr:.6f}, "
               f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%, "
               f"Test Acc: {test_acc:.2f}%, Test F1: {test_f1:.4f}")
 

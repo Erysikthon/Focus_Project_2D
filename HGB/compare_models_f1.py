@@ -27,11 +27,11 @@ LSTM_f1 = {
 }
 
 Transformer_f1 = {
-    'background': 0.87,
-    'grooming': 0.72,
-    'supportedrear': 0.75,
-    'unsupportedrear': 0.46,
-    'digging': 0.77
+    'background': 0.88,
+    'grooming': 0.70,
+    'supportedrear': 0.74,
+    'unsupportedrear': 0.45,
+    'digging': 0.79
 }
 
 # Create comparison bar plot

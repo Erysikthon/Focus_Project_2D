@@ -17,7 +17,7 @@ from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
 r = 27
-epoch = 68
+epoch =45
 name = f"TCNN_{epoch}.pt"
 video = True
 kernels = True
@@ -51,23 +51,23 @@ video_names.append("BehavioralCamera2023-03-09T11_04_40")
 video_names.append("BehavioralCamera2023-03-09T11_41_07")
 video_names.append("BehavioralCamera2023-03-09T12_34_50")
 
-video_names_test = ["T2", "T4", "T13", "MBT1-M2", "MBT1-M7", "MBT1-M10"]
+video_names_test =  ['3278_21min_behaviour_2023-01-19T11_08_30', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-03-09T10_37_32', 'MBT1-M15', 'T10', 'BehavioralCamera2023-03-09T11_04_40']
 video_names_train = [v for v in video_names if v not in video_names_test]
 
-video_names_test = ["T4"]           ####################     DEBUG        ############################
+video_names_test = ['T10']           ####################     DEBUG        ############################
 #video_names_train = ["T4"]           ####################     DEBUG        ############################
 
 features_folder = "./data/rotated_videos"
 labels_folder = "./data/labels"
 behaviors = {"background" : 0, "Supportedrearing" : 1, "Unsupportedrearing" : 2, "Grooming" : 3, "Digging" : 4}
 
-train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 40, 
+train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 1120, 
                               undersampling_dict = {"background" : 0.2, "Supportedrearing" : 0.6, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
                               random_state = None, identity = "TRAIN randomized dataset", debug = debug)
 test_set = SingleVideoDatasetCollection(features_folder, labels_folder, video_names_test, behaviors,s = 1, r = r, identity = "TEST single dataset collection")
 
 train_data_loader = DataLoader(train_set, 64)
-test_data_loader = DataLoader(test_set, 128)
+test_data_loader = DataLoader(test_set, 64)
 
 """
 train_set.__getitem__(0, debug = True)
@@ -95,7 +95,7 @@ else:
 
 class_weights = torch.tensor(np.array([0.5, 1, 1.5, 1, 1], dtype = np.float32)).to(mps_device)
 loss_function = nn.CrossEntropyLoss(class_weights)
-optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01)
+optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01) # 0.001, weight_decay = 0.01
 #torch.nn.init.uniform_(network.fc_4.weight, 0.1, 0.3) 
 
 if kernels and epoch == 0:
@@ -106,17 +106,35 @@ if kernels and epoch == 0:
 
 for epoch in range(epoch+1,2001):
 
-    if epoch >= 120:
+    if epoch >= 0:
+        class_weights = torch.tensor(np.array([1, 1, 1, 1, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.03, "Supportedrearing" : 0.4, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}
+
+    if epoch >= 40:
+        class_weights = torch.tensor(np.array([1, 1, 1.3, 1, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.2, "Supportedrearing" : 0.7, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.45}
+
+    if epoch >= 80:
         class_weights = torch.tensor(np.array([0.5, 1, 1.5, 1, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.4, "Supportedrearing" : 0.7, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.6}
 
-    if epoch >= 170:
+    if epoch >= 120:
         class_weights = torch.tensor(np.array([0.25, 1, 2.5, 1.2, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.7, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.8}
 
-    if epoch >= 320:
-        class_weights = torch.tensor(np.array([0.15, 1.3, 4, 2.5, 1], dtype = np.float32)).to(mps_device)
+    if epoch >= 160:
+        class_weights = torch.tensor(np.array([0.5, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
+
+    if epoch >= 200:
+        class_weights = torch.tensor(np.array([0.5, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
+        optimizer = torch.optim.AdamW(network.parameters(), 0.0001, weight_decay = 0.001)
+
+    if epoch >= 240:
+        class_weights = torch.tensor(np.array([0.5, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(mps_device)
+        train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
+        optimizer = torch.optim.AdamW(network.parameters(), 0.00001, weight_decay = 0.0001)
 
     if epoch % 3 == 0:
         train_data_loader.dataset.undersample()
@@ -137,7 +155,7 @@ for epoch in range(epoch+1,2001):
                 kernel_heatmap_3d(network.conv3d_2, f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
                 kernel_heatmap_3d(network.conv3d_3, f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         
-    if epoch % 5 == 0 and predict:
+    if epoch % 15 == 0 and predict:
         test_mean_loss, y_true_test, y_pred_test = test_loop(test_data_loader, network, loss_function, mps_device)
 
         print(colors.CYAN + f"\n    test: " + colors.ENDC)
@@ -171,4 +189,4 @@ for epoch in range(epoch+1,2001):
                                                 pd.DataFrame(y_true_test[offset: offset + dataset.get_range() - 1]))
                 offset += dataset.get_range()
 
-        torch.save(network.state_dict(), f"./output/TCNN_{epoch}.pt")
+    torch.save(network.state_dict(), f"./output/TCNN_{epoch}.pt")

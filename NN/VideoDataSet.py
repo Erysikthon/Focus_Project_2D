@@ -18,11 +18,12 @@ class RandomizedDataset(Dataset):
                  s : int,
                  r : int,
                  n : int,
-                 undersampling_dict = dict[str : float],
+                 undersampling_dict : dict[str : float],
                  random_state = None,
                  identity : str = "randomized dataset",
                  debug = True
                  ):
+
         """
         Docstring for __init__
         
@@ -59,6 +60,8 @@ class RandomizedDataset(Dataset):
 
         self.undersample()
 
+        print(self.lenghts)
+
         print(colors.GREEN + f"{identity} initialized:\n" +
               colors.CYAN +"   videos = " + colors.ENDC + f"{self.file_names}\n"+
               colors.CYAN +"   behaviors = " + colors.ENDC + f"{self.behaviors}\n"+
@@ -68,10 +71,15 @@ class RandomizedDataset(Dataset):
               colors.CYAN +"   random state = " + colors.ENDC + f"{random_state}\n")
 
     def __len__(self):
-        return len(self.file_names)*self.n
+        return self.n
 
     def __getitem__(self, index):
-        file_name = self.file_names[index//self.n]
+
+        prob_weight = []
+        for file_name in self.lenghts:
+            prob_weight.append(self.lenghts[file_name])
+
+        file_name = rd.choices(self.file_names, weights = prob_weight, k=1)[0]
         video_path = self.features_folder + "/" + file_name + ".mp4"
 
         cap = cv2.VideoCapture(video_path)
@@ -159,6 +167,12 @@ class RandomizedDataset(Dataset):
                         if rd.random() <= subset[behavior] * self.undersampling_dict[behavior]:
                             self.indexes[file_name].append(i)
                 pbar.update(1)
+    
+        self.lenghts = {}
+        self.totlength = 0
+        for file_name in self.indexes:
+            self.lenghts[file_name] = len(self.indexes[file_name])
+            self.totlength += len(self.indexes[file_name])
         
 class SingleVideoDataset(Dataset):
     def __init__(self, 

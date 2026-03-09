@@ -22,25 +22,29 @@ class TCNN(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.conv3d_1 = nn.Conv3d(1, 30, (5, 5, 5), (1, 2, 2), padding=0)
-        self.bn1 = nn.GroupNorm(5, 30)
+        self.conv3d_1 = nn.Conv3d(1, 80, (5, 5, 5), (1, 2, 2), padding=0)
+        self.bn1 = nn.GroupNorm(5, 80)
         self.relu_1 = nn.ReLU()
 
-        self.conv3d_2 = nn.Conv3d(30, 60, (11, 5, 5), (1, 1, 1), padding=0)
-        self.bn2 = nn.GroupNorm(5, 60)
+        self.conv3d_2 = nn.Conv3d(80, 160, (11, 5, 5), (1, 1, 1), padding=0)
+        self.bn2 = nn.GroupNorm(5, 160)
         self.relu_2 = nn.ReLU()
         self.maxpool3d_2 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
 
-        self.conv3d_3 = nn.Conv3d(60, 100, (13, 5, 5), (1, 1, 1), padding=0)
-        self.bn3 = nn.GroupNorm(5, 100)
+        self.conv3d_3 = nn.Conv3d(160, 240, (13, 5, 5), (1, 1, 1), padding=0)
+        self.bn3 = nn.GroupNorm(5, 240)
         self.relu_3 = nn.ReLU()
         self.maxpool3d_3 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
 
-        self.fc_4 = nn.Linear(100*14*6, 5000)
+        self.fc_4 = nn.Linear(240*14*6, 7500)
         self.relu_4 = nn.ReLU()
         self.dropout_4 = nn.Dropout(0.3)
 
-        self.fc_5 = nn.Linear(5000, 5)
+        self.fc_5 = nn.Linear(7500, 3200)
+        self.relu_5 = nn.ReLU()
+        self.dropout_5 = nn.Dropout(0.3)
+
+        self.fc_6 = nn.Linear(3200, 5)
 
     def forward(self, x):
 
@@ -82,6 +86,10 @@ class TCNN(nn.Module):
         x = self.dropout_4(x)
 
         x = self.fc_5(x)
+        x = self.relu_5(x)
+        x = self.dropout_5(x)
+
+        x = self.fc_6(x)
 
         x = x.permute(0, 2, 1)
 

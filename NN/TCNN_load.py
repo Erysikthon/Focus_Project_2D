@@ -17,11 +17,11 @@ from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
 r = 27
-epoch =45
+epoch = 0
 name = f"TCNN_{epoch}.pt"
-video = True
-kernels = True
-predict = True
+video = False
+kernels = False
+predict = False
 debug = False 
 
 if torch.backends.mps.is_available():
@@ -62,7 +62,7 @@ labels_folder = "./data/labels"
 behaviors = {"background" : 0, "Supportedrearing" : 1, "Unsupportedrearing" : 2, "Grooming" : 3, "Digging" : 4}
 
 train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 1120, 
-                              undersampling_dict = {"background" : 0.2, "Supportedrearing" : 0.6, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
+                              undersampling_dict = {"background" : 0.03, "Supportedrearing" : 0.4, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
                               random_state = None, identity = "TRAIN randomized dataset", debug = debug)
 test_set = SingleVideoDatasetCollection(features_folder, labels_folder, video_names_test, behaviors,s = 1, r = r, identity = "TEST single dataset collection")
 
@@ -93,7 +93,7 @@ else:
     stats = pd.DataFrame(columns = cols)
     stats.to_csv(f"./output/stats.csv")
 
-class_weights = torch.tensor(np.array([0.5, 1, 1.5, 1, 1], dtype = np.float32)).to(mps_device)
+class_weights = torch.tensor(np.array([1, 1, 1, 1, 1], dtype = np.float32)).to(mps_device)
 loss_function = nn.CrossEntropyLoss(class_weights)
 optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01) # 0.001, weight_decay = 0.01
 #torch.nn.init.uniform_(network.fc_4.weight, 0.1, 0.3) 

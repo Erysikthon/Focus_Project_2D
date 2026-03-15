@@ -61,7 +61,7 @@ class VideoRotator:
                 cx = tracking_dataframe.loc[n, centre+".x"]
                 cy = tracking_dataframe.loc[n, centre+".y"]
 
-                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray_frame = 255 - cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 
                 tx = -(cx - self.original_width/2)
                 ty = -(cy - self.original_height/2)
@@ -77,7 +77,7 @@ class VideoRotator:
 
                 cropped_frame = rotated_frame[self.crop_y0:self.crop_y1, self.crop_x0:self.crop_x1]
 
-                normalized_frame = cv2.normalize(cropped_frame, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                normalized_frame = cv2.normalize(cropped_frame, None, -0.5, 0.5, cv2.NORM_MINMAX).astype(np.uint8)
 
                 self.out.write(normalized_frame)
                 pbar.update(1)

@@ -18,23 +18,40 @@ printo = False
 import torch
 import torch.nn as nn
 
+class ResBlock(nn.Module):
+    def __init__(self, channels):
+        super().__init__()
+        self.conv = nn.modules.Conv3d(channels, channels, (3, 3, 3), (1, 1, 1), (1, 1, 1))
+        self.batchnorm = nn.modules.BatchNorm3d(channels)
+        self.relu = nn.modules.ReLU()
+
+    def forward(self, x):
+        pass
+
 class TCNN(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.conv3d_1 = nn.Conv3d(1, 80, (5, 5, 5), (1, 2, 2), padding=0)
-        self.bn1 = nn.GroupNorm(5, 80)
-        self.relu_1 = nn.ReLU()
+        self.initial_convolution = nn.modules.Sequential(
+            nn.modules.Conv3d(1, 64, (5, 5, 5), (1, 2, 2), padding = 0),
+            nn.modules.BatchNorm3d(32),
+            nn.modules.ReLU()
+        )
 
-        self.conv3d_2 = nn.Conv3d(80, 160, (11, 5, 5), (1, 1, 1), padding=0)
-        self.bn2 = nn.GroupNorm(5, 160)
-        self.relu_2 = nn.ReLU()
-        self.maxpool3d_2 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
+        self.res_population_1 = []
+        for i in range(0, 30):
+            self.res_population.append(ResBlock(64))
 
-        self.conv3d_3 = nn.Conv3d(160, 240, (13, 5, 5), (1, 1, 1), padding=0)
-        self.bn3 = nn.GroupNorm(5, 240)
-        self.relu_3 = nn.ReLU()
-        self.maxpool3d_3 = nn.MaxPool3d((1, 2, 2), (1, 2, 2))
+        self.block_1_2 = nn.modules.Sequential(
+            nn.modules.Conv3d(64, 96, (3, 3, 3), (1, 1, 1), padding = 0),
+            nn.modules.BatchNorm3d(96),
+            nn.modules.ReLU(),
+            nn.modules.MaxPool3d((1, 2, 2), (1, 2, 2))
+        )
+        
+        self.res_population_2 = []
+        for i in range(0, 30):
+            self.res_population.append(ResBlock(96))
 
         self.fc_4 = nn.Linear(240*14*6, 7500)
         self.relu_4 = nn.ReLU()

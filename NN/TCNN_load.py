@@ -16,7 +16,7 @@ from graphs import f1_over_epochs
 from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
-r = 27
+r = 41
 epoch = 0
 name = f"TCNN_{epoch}.pt"
 video = False
@@ -55,7 +55,7 @@ video_names_test =  ['3278_21min_behaviour_2023-01-19T11_08_30', '3279_21min_beh
 video_names_train = [v for v in video_names if v not in video_names_test]
 
 video_names_test = ['T10']           ####################     DEBUG        ############################
-#video_names_train = ["T4"]           ####################     DEBUG        ############################
+video_names_train = ["T4"]           ####################     DEBUG        ############################
 
 features_folder = "./data/rotated_videos"
 labels_folder = "./data/labels"
@@ -78,6 +78,8 @@ test_set_collection[0].__getitem__(1, debug = True)
 network = TCNN().to(mps_device)
 
 print(colors.GREEN + "Network initalized: " + colors.ENDC + f"{network}\n")
+total_params = sum(p.numel() for p in network.parameters())
+print(colors.CYAN + f"  Total parameters:" + colors.ENDC + f"{total_params:,}")
 if not epoch == 0:
     network.load_state_dict(torch.load(f"./output/{name}"))
     print(colors.CYAN + f"Weights loaded successfully from: " + colors.ENDC + f"{name}")

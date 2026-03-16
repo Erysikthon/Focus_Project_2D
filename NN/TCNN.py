@@ -13,7 +13,7 @@ from graphs import kernel_heatmap_3d
 from graphs import loss_over_epochs_lineplot
 from graphs import plot_confusion_matrix
 
-printo = False
+printo = True
 
 import torch
 import torch.nn as nn
@@ -21,79 +21,90 @@ import torch.nn as nn
 class ResBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
-        self.conv = nn.modules.Conv3d(channels, channels, (3, 3, 3), (1, 1, 1), (1, 1, 1))
-        self.batchnorm = nn.modules.BatchNorm3d(channels)
-        self.relu = nn.modules.ReLU()
+        self.H = nn.modules.Sequential(
+        nn.modules.Conv3d(channels, channels, (3, 3, 3), (1, 1, 1), (1, 1, 1)),
+        nn.modules.BatchNorm3d(channels),
+        nn.modules.ReLU(),
+        nn.modules.Conv3d(channels, channels, (3, 3, 3), (1, 1, 1), (1, 1, 1)),
+        nn.modules.BatchNorm3d(channels)
+        )
 
     def forward(self, x):
-        pass
+        x = self.H(x)
+        return x
 
 class TCNN(nn.Module):
     def __init__(self):
         super().__init__()
 
         self.initial_convolution = nn.modules.Sequential(
-            nn.modules.Conv3d(1, 64, (5, 5, 5), (1, 2, 2), padding = 0),
+            nn.modules.Conv3d(1, 32, (5, 5, 5), (1, 2, 2), padding = 0),
             nn.modules.BatchNorm3d(32),
-            nn.modules.ReLU()
+            nn.modules.ReLU(),
+            nn.modules.Conv3d(32, 48, (5, 5, 5), (1, 1, 1), padding = 0),
+            nn.modules.BatchNorm3d(48),
+            nn.modules.ReLU(),
+            nn.modules.MaxPool3d((3, 1, 1), (2, 1, 1))
         )
 
-        self.res_population_1 = []
-        for i in range(0, 30):
-            self.res_population.append(ResBlock(64))
+        self.res_population_1 = nn.ModuleList()
+        for i in range(0, 2):
+            self.res_population_1.append(ResBlock(48))
 
-        self.block_1_2 = nn.modules.Sequential(
-            nn.modules.Conv3d(64, 96, (3, 3, 3), (1, 1, 1), padding = 0),
-            nn.modules.BatchNorm3d(96),
+        self.switch_1_2 = nn.modules.Sequential(
+            nn.modules.Conv3d(48, 64, (5, 5, 5), (1, 1, 1), padding = 0),
+            nn.modules.BatchNorm3d(64),
             nn.modules.ReLU(),
-            nn.modules.MaxPool3d((1, 2, 2), (1, 2, 2))
+            nn.modules.MaxPool3d((3, 3, 3), (2, 2, 2))
         )
         
-        self.res_population_2 = []
-        for i in range(0, 30):
-            self.res_population.append(ResBlock(96))
+        self.res_population_2 = nn.ModuleList()
+        for i in range(0, 2):
+            self.res_population_2.append(ResBlock(64))
+        
+        self.final_convolution = nn.modules.Sequential(
+            nn.modules.Conv3d(64, 64, (3, 3, 3), (1, 1, 1), padding = 0),
+            nn.modules.BatchNorm3d(64),
+            nn.modules.ReLU(),
+            nn.modules.Conv3d(64, 64, (3, 3, 3), (1, 1, 1), padding = 0),
+            nn.modules.BatchNorm3d(64)
+        )
 
-        self.fc_4 = nn.Linear(240*14*6, 7500)
+        self.fc_4 = nn.Linear(64*26*9, 1000)
         self.relu_4 = nn.ReLU()
-        self.dropout_4 = nn.Dropout(0.3)
+        self.dropout_4 = nn.Dropout(0.5)
 
-        self.fc_5 = nn.Linear(7500, 3200)
+        self.fc_5 = nn.Linear(1000, 100)
         self.relu_5 = nn.ReLU()
         self.dropout_5 = nn.Dropout(0.3)
 
-        self.fc_6 = nn.Linear(3200, 5)
+        self.fc_6 = nn.Linear(100, 5)
 
-    def forward(self, x):
+    def forward(self, x : torch.Tensor):
 
-        if printo:
-            B, C, D, H, W = x.shape
-            print(f"{C}*{H}*{W}")
-
-        x = self.conv3d_1(x)
-        x = self.bn1(x)
-        x = self.relu_1(x)
+        x = self.initial_convolution(x)
 
         if printo:
             B, C, D, H, W = x.shape
-            print(f"{C}*{H}*{W}")
+            print(f"{C}*{H}*{W} - {D}")
+        
+        for res_block in self.res_population_1:
+            x = x + res_block(x)
 
-        x = self.conv3d_2(x)
-        x = self.bn2(x)
-        x = self.relu_2(x)
-        x = self.maxpool3d_2(x)
+        x = self.switch_1_2(x)
 
         if printo:
             B, C, D, H, W = x.shape
-            print(f"{C}*{H}*{W}")
+            print(f"{C}*{H}*{W} - {D}")
 
-        x = self.conv3d_3(x)
-        x = self.bn3(x)
-        x = self.relu_3(x)
-        x = self.maxpool3d_3(x)
+        for res_block in self.res_population_2:
+            x = x + res_block(x)
+        
+        x = self.final_convolution(x)
 
         B, C, D, H, W = x.shape
         if printo:
-            print(f"{C}*{H}*{W}")
+            print(f"{C}*{H}*{W} - {D}")
 
         x = x.permute(0, 2, 1, 3, 4)  # [B, D, C, H, W]
         x = x.reshape(B, D, C*H*W)    # [B, D, C*H*W]

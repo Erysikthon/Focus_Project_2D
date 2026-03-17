@@ -18,21 +18,46 @@ def drop_last_frame(X : pd.DataFrame,y : pd.DataFrame):
     if not (X_index.equals(y_index)):
         raise ValueError("X index name doesn't match y index name")
     index = X_index
+
+    # Build list of indices to keep (much faster than dropping one by one)
+    rows_to_keep_X = []
+    rows_to_keep_y = []
+
     for video_name in index:
-        if y.loc[video_name].shape[0] == X.loc[video_name].shape[0]:
-            continue
-        
-        elif y.loc[video_name].shape[0] > X.loc[video_name].shape[0]:
-            difference = y.loc[video_name].shape[0] - X.loc[video_name].shape[0]
-            for i in range(0,difference):
-                y = y.drop((video_name, y.loc[video_name].index[-1]))
+        X_video = X.loc[video_name]
+        y_video = y.loc[video_name]
+
+        X_len = X_video.shape[0]
+        y_len = y_video.shape[0]
+
+        if y_len == X_len:
+            # Keep all frames for this video
+            if isinstance(X_video.index, pd.MultiIndex):
+                rows_to_keep_X.extend([(video_name, frame) for frame in X_video.index])
+                rows_to_keep_y.extend([(video_name, frame) for frame in y_video.index])
+            else:
+                rows_to_keep_X.extend([(video_name, frame) for frame in X_video.index])
+                rows_to_keep_y.extend([(video_name, frame) for frame in y_video.index])
+
+        elif y_len > X_len:
+            difference = y_len - X_len
+            # Keep only first X_len frames from y
+            frames_to_keep = y_video.index[:X_len]
+            rows_to_keep_y.extend([(video_name, frame) for frame in frames_to_keep])
+            rows_to_keep_X.extend([(video_name, frame) for frame in X_video.index])
             print(f"video '{video_name}' has {difference} too many frames in y: dropped {difference}")
 
-        elif y.loc[video_name].shape[0] < X.loc[video_name].shape[0]:
-            difference = X.loc[video_name].shape[0] - y.loc[video_name].shape[0]
-            for i in range(0,difference):
-                X = X.drop((video_name, X.loc[video_name].index[-1]))
+        elif y_len < X_len:
+            difference = X_len - y_len
+            # Keep only first y_len frames from X
+            frames_to_keep = X_video.index[:y_len]
+            rows_to_keep_X.extend([(video_name, frame) for frame in frames_to_keep])
+            rows_to_keep_y.extend([(video_name, frame) for frame in y_video.index])
             print(f"video '{video_name}' has {difference} too many frames in X: dropped {difference}")
+
+    # Filter dataframes by keeping only selected rows
+    X = X.loc[rows_to_keep_X]
+    y = y.loc[rows_to_keep_y]
 
     return X, y
 

@@ -28,4 +28,7 @@ def labels(labels_path : str,
 
     y = pd.concat(dictionary.values(), keys=dictionary.keys(), names=["video_id", "frame"])
 
+    # Normalize label casing to lowercase to handle inconsistencies (e.g., "supportedrearing" vs "Supportedrearing")
+    y = y.str.lower()
+
     return y

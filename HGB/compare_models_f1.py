@@ -1,36 +1,37 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Hardcoded F1 scores for 3 models (test scores only)
+# Hardcoded F1 scores for 4 models (test scores only)
 F_model_f1 = {
-    'background': 0.90,
-    'grooming': 0.76,
+    'background': 0.91,
+    'grooming': 0.83,
     'supportedrear': 0.87,
-    'unsupportedrear': 0.49,
-    'digging': 0.80
+    'unsupportedrear': 0.37,
+    'digging': 0.75
 }
 
 HGB_f1 = {
     'background': 0.80,
-    'grooming': 0.65,
-    'supportedrear': 0.70,
-    'unsupportedrear': 0.22,
+    'grooming': 0.66,
+    'supportedrear': 0.68,
+    'unsupportedrear': 0.23,
     'digging': 0.70
 }
 
+#
 LSTM_f1 = {
-    'background': 0.99,
-    'grooming': 0.80,
-    'supportedrear': 0.93,
-    'unsupportedrear': 0.79,
-    'digging': 0.00
+    'background': 0.88,
+    'grooming': 0.75,
+    'supportedrear': 0.76,
+    'unsupportedrear': 0.30,
+    'digging': 0.77
 }
 
 Transformer_f1 = {
-    'background': 0.88,
-    'grooming': 0.70,
-    'supportedrear': 0.74,
-    'unsupportedrear': 0.45,
+    'background': 0.89,
+    'grooming': 0.77,
+    'supportedrear': 0.81,
+    'unsupportedrear': 0.39,
     'digging': 0.79
 }
 
@@ -81,7 +82,7 @@ plt.xlabel('Behaviour Class', fontsize=16, labelpad=15)
 plt.xticks(x_pos, behaviors, rotation=0, ha='center', fontsize=14)
 plt.yticks(fontsize=14)
 plt.ylim([0, 1.05])
-plt.legend(fontsize=13)
+plt.legend(fontsize=13, ncol=2, loc='upper right', columnspacing=1.0)
 plt.grid(True, axis='y', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig('pipeline_outputs/f1_scores_model_comparison_barplot.png', dpi=300, bbox_inches='tight')

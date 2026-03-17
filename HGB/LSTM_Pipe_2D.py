@@ -26,7 +26,7 @@ import numpy as np
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "LSTM_new_1"
+DATASET_VERSION = "LSTM_final_2"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
@@ -463,8 +463,8 @@ def find_optimal_thresholds(model, dataloader, device, num_classes):
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
-    manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
-    #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
+    #manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
+    manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
     if manual_test_video_ids is not None:
         # Use manually specified test videos
@@ -529,8 +529,17 @@ if not os.path.isfile(model_path):
         classes=np.unique(y_train_flat),
         y=y_train_flat
     )
+
+    # Moderate the weights to avoid over-penalizing majority class
+    # Scale weights so that the max weight is 3x the min weight instead of extreme ratios
+    min_weight = class_weight_array.min()
+    max_weight = class_weight_array.max()
+    if max_weight / min_weight > 3.0:
+        # Compress the range of weights
+        class_weight_array = 1.0 + 2.0 * (class_weight_array - min_weight) / (max_weight - min_weight)
+
     class_weights = {i: weight for i, weight in enumerate(class_weight_array)}
-    print(f"\nClass weights (balanced): {class_weights}")
+    print(f"\nClass weights (moderated): {class_weights}")
 
     # Scale features
     scaler = StandardScaler()
@@ -583,7 +592,7 @@ if not os.path.isfile(model_path):
 
     # Focal Loss for imbalanced classes
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
-    criterion = FocalLoss(alpha=weight_tensor, gamma=2.0)  # Balanced focal loss gamma
+    criterion = FocalLoss(alpha=weight_tensor, gamma=1.0)  # Reduced gamma to be less aggressive on majority class
     optimizer = optim.Adam(model.parameters(), lr=0.0005, weight_decay=1e-4)  # Lower LR, higher weight decay
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='max', factor=0.5, patience=3)
 

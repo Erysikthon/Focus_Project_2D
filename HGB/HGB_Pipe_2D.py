@@ -244,8 +244,8 @@ else:
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
-    manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
-    #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
+    #manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
+    manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
     if manual_test_video_ids is not None:
         # Use manually specified test videos
@@ -300,9 +300,9 @@ if not os.path.isfile(model_path):
     param_grid = {
         'classifier__max_iter': [300],
         'classifier__max_depth': [6, 7],  # Added 6 for shallower trees
-        'classifier__learning_rate': [0.08, 0.1],  # Added 0.08 for slower, better training
-        'classifier__min_samples_leaf': [40, 50, 60],  # Added 50, 60 to reduce overfitting
-        'classifier__l2_regularization': [0, 0.1, 0.5],  # Added 0.5 for stronger regularization
+        'classifier__learning_rate': [0.1],  # Added 0.08 for slower, better training
+        'classifier__min_samples_leaf': [40, 50],  # Added 50, 60 to reduce overfitting
+        'classifier__l2_regularization': [0, 0.1],  # Added 0.5 for stronger regularization
         'classifier__max_bins': [255],
         'classifier__max_leaf_nodes': [50, 63]  # Added 50 for fewer leaf nodes
 

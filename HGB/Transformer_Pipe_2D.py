@@ -27,11 +27,11 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_new_complex_2"
+DATASET_VERSION = "Transformer_everything"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
-y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_everything.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_everything_filtered.csv"
+y_path = f"./pipeline_saved_processes/dataframes/y_everything.csv"
 model_path = f"pipeline_saved_processes/models/Transformer_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
 label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VERSION}.pkl"
@@ -46,7 +46,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
     import glob
 
-    collection_path = "./pipeline_inputs/collection"
+    collection_path = "./pipeline_inputs/collection_full"
     fps = 30
     rescale_points = ("tr", "tl")
     rescale_distance_mbt = 0.47  # For MBT videos (27.5 x 37.5 cm box)
@@ -71,6 +71,37 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     tracking_collection = TrackingCollection(tracking_dict)
     print(f"Initial videos loaded: {len(tracking_collection._obj_dict)}")
 
+    # Likelihood filter (before stripping column names)
+    tracking_collection.each.filter_likelihood(filter_threshold)
+
+    # Rescale (2D only - x, y) with different distances based on video name (before stripping column names)
+    for video_id, tracking in tracking_collection._obj_dict.items():
+        # Get available point names from column names
+        # Columns are like: 'oft.oft_0.tr.x', 'oft.oft_0.tr.y', etc.
+        columns = tracking.data.columns
+
+        # Extract unique point names (everything before .x, .y, .z, .likelihood)
+        point_names = set()
+        for col in columns:
+            parts = col.split('.')
+            if len(parts) >= 2 and parts[-1] in ['x', 'y', 'z', 'likelihood']:
+                point_name = '.'.join(parts[:-1])
+                point_names.add(point_name)
+
+        # Find points that end with 'tr' and 'tl'
+        tr_point = next((p for p in point_names if p.endswith('.tr')), None)
+        tl_point = next((p for p in point_names if p.endswith('.tl')), None)
+
+        if tr_point and tl_point:
+            if "MBT" in video_id:
+                tracking.rescale_by_known_distance(tr_point, tl_point, rescale_distance_mbt, dims=("x", "y"))
+                print(f"Rescaled {video_id} with distance {rescale_distance_mbt} (MBT) using {tr_point} and {tl_point}")
+            else:
+                tracking.rescale_by_known_distance(tr_point, tl_point, rescale_distance_default, dims=("x", "y"))
+                print(f"Rescaled {video_id} with distance {rescale_distance_default} (default) using {tr_point} and {tl_point}")
+        else:
+            print(f"Warning: Could not find tr/tl points for {video_id}, skipping rescaling")
+
     # Strip column name prefixes (e.g., oft.oft_0.tr.x -> tr.x)
     tracking_collection.each.strip_column_names()
 
@@ -87,18 +118,6 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
         del tracking_collection._obj_dict[video_id]
 
     print(f"After OFT filter: {len(tracking_collection._obj_dict)} videos with valid OFT tracking")
-
-    # Likelihood filter
-    tracking_collection.each.filter_likelihood(filter_threshold)
-
-    # Rescale (2D only - x, y) with different distances based on video name
-    for video_id, tracking in tracking_collection._obj_dict.items():
-        if "MBT" in video_id:
-            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_mbt, dims=("x", "y"))
-            print(f"Rescaled {video_id} with distance {rescale_distance_mbt} (MBT)")
-        else:
-            tracking.rescale_by_known_distance(rescale_points[0], rescale_points[1], rescale_distance_default, dims=("x", "y"))
-            print(f"Rescaled {video_id} with distance {rescale_distance_default} (default)")
 
     # Smoothing
     if smoothing:
@@ -159,7 +178,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                embedding_length=list(range(-15, 16, 1))
                                )
 
-    y = labels(labels_path="./pipeline_inputs/labels",
+    y = labels(labels_path="./pipeline_inputs/labels_full",
                )
 
     print(f"\nBefore drop_non_analyzed_videos: X has {X.index.get_level_values('video_id').nunique()} videos, y has {y.index.get_level_values('video_id').nunique()} videos")
@@ -403,7 +422,11 @@ def evaluate(model, dataloader, device):
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
-    manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
+    manual_test_video_ids = ['3279_21min_behaviour_2023-01-19T12_57_29', '20231123_10min_OFT-BL_4028',
+                             'BehavioralCamera2023-02-23T10_23_42_shorter', 'MBT1-M2', 'T2',
+                             'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1']
+
+    #manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
     #manual_test_video_ids = ['3278_21min_behaviour_2023-01-19T11_08_30', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-03-09T10_37_32', 'MBT1-M15', 'T10', 'BehavioralCamera2023-03-09T11_04_40']
     #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
@@ -522,6 +545,7 @@ if not os.path.isfile(model_path):
     optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.01, betas=(0.9, 0.999))
 
     # Cosine annealing with warmup
+    num_epochs = 150  # Reduced since cosine schedule will naturally decay
     warmup_epochs = 10
     total_steps = num_epochs * len(train_loader)
     warmup_steps = warmup_epochs * len(train_loader)
@@ -535,7 +559,6 @@ if not os.path.isfile(model_path):
     scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda)
 
     # Training loop
-    num_epochs = 150  # Reduced since cosine schedule will naturally decay
     best_f1 = 0.0
     patience = 20  # Increased patience for larger model
     patience_counter = 0

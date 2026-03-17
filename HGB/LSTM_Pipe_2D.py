@@ -26,11 +26,11 @@ import numpy as np
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "LSTM_final_2"
+DATASET_VERSION = "LSTM_everything"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_rescaled_31_filtered.csv"
-y_path = f"./pipeline_saved_processes/dataframes/y_hist.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X_everything.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_everything_filtered.csv"
+y_path = f"./pipeline_saved_processes/dataframes/y_everything.csv"
 model_path = f"pipeline_saved_processes/models/LSTM_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
 label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VERSION}.pkl"
@@ -45,7 +45,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
     import glob
 
-    collection_path = "./pipeline_inputs/collection"
+    collection_path = "./pipeline_inputs/collection_full"
     fps = 30
     rescale_points = ("tr", "tl")
     rescale_distance_mbt = 0.47  # For MBT videos (27.5 x 37.5 cm box)
@@ -175,7 +175,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                embedding_length=list(range(-15, 16, 1))
                                )
 
-    y = labels(labels_path="./pipeline_inputs/labels",
+    y = labels(labels_path="./pipeline_inputs/labels_full",
                )
 
     print(f"\nBefore drop_non_analyzed_videos: X has {X.index.get_level_values('video_id').nunique()} videos, y has {y.index.get_level_values('video_id').nunique()} videos")
@@ -463,8 +463,11 @@ def find_optimal_thresholds(model, dataloader, device, num_classes):
 if not os.path.isfile(model_path):
 
     # Option 1: Manually define test video IDs (set to None to use random split)
+    manual_test_video_ids = ['3279_21min_behaviour_2023-01-19T12_57_29', '20231123_10min_OFT-BL_4028',
+                             'BehavioralCamera2023-02-23T10_23_42_shorter', 'MBT1-M2', 'T2',
+                             'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1']
     #manual_test_video_ids = ['MBT1-M10', 'T18', 'MBT1-M2', 'MBT1-M15', 'T1', 'T3']
-    manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
+    #manual_test_video_ids = ["T2","T4","T13","MBT1-M2","MBT1-M7","MBT1-M10"]  # Example: ['video1', 'video2', 'video3']
 
     if manual_test_video_ids is not None:
         # Use manually specified test videos

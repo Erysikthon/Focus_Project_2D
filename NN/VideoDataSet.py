@@ -130,7 +130,7 @@ class RandomizedDataset(Dataset):
                 if key == 27:
                     break
 
-        X_tensor = torch.from_numpy((X/255).astype(np.float32))
+        X_tensor = torch.from_numpy((-(X/255-0.5)).astype(np.float32))
         X_tensor = X_tensor.permute(2, 0, 1).unsqueeze(0)
 
         y_raw = pd.read_csv(self.labels_folder + "/" + file_name + ".csv").iloc[first_n_y: first_n_y + self.s, :].reset_index(drop = True)
@@ -250,7 +250,7 @@ class SingleVideoDataset(Dataset):
                 if key == 27:
                     break
 
-        X_tensor = torch.from_numpy((X/255).astype(np.float32))
+        X_tensor = torch.from_numpy((-(X/255-0.5)).astype(np.float32))
         X_tensor = X_tensor.permute(2, 0, 1).unsqueeze(0)
 
         y_raw = pd.read_csv(self.labels_folder + "/" + self.file_name + ".csv").iloc[int(index * self.s + (self.r - 1)/2) : int((index + 1) * (self.s) + (self.r - 1)/2)].reset_index(drop = True)

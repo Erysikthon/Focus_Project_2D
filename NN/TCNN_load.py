@@ -17,11 +17,11 @@ from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
 r = 41
-epoch = 0
+epoch = 51
 name = f"TCNN_{epoch}.pt"
-video = False
+video = True
 kernels = False
-predict = False
+predict = True
 debug = False 
 
 if torch.backends.mps.is_available():
@@ -51,11 +51,35 @@ video_names.append("BehavioralCamera2023-03-09T11_04_40")
 video_names.append("BehavioralCamera2023-03-09T11_41_07")
 video_names.append("BehavioralCamera2023-03-09T12_34_50")
 
-video_names_test =  ['3278_21min_behaviour_2023-01-19T11_08_30', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-03-09T10_37_32', 'MBT1-M15', 'T10', 'BehavioralCamera2023-03-09T11_04_40']
+video_names.append("20231123_10min_OFT-BL_3919")
+video_names.append("20231123_10min_OFT-BL_3961")
+video_names.append("20231123_10min_OFT-BL_3962")
+video_names.append("20231123_10min_OFT-BL_3963")
+video_names.append("20231123_10min_OFT-BL_3964")
+video_names.append("20231123_10min_OFT-BL_4025")
+video_names.append("20231123_10min_OFT-BL_4028")
+video_names.append("20231123_10min_OFT-BL_4029")
+video_names.append("BehavioralCamera2023-03-09T12_08_14")
+video_names.append("BehavioralCamera2023-03-09T13_02_04")
+video_names.append("BehavioralCamera2023-03-09T14_30_45")
+
+video_names.append("BehavioralCamera2023-02-14T13_05_19_shorter")
+video_names.append("BehavioralCamera2023-02-14T15_22_37_shorter")
+video_names.append("BehavioralCamera2023-02-15T14_40_46_shorter")
+video_names.append("BehavioralCamera2023-02-18T10_33_06_shorter")
+video_names.append("BehavioralCamera2023-02-18T12_37_43_shorter")
+video_names.append("BehavioralCamera2023-02-19T14_53_53_shorter")
+video_names.append("BehavioralCamera2023-02-23T10_23_42_shorter")
+video_names.append("BehavioralCamera2023-02-23T15_42_37_shorter")
+video_names.append("BehavioralCamera2023-02-24T11_06_53_shorter")
+
+
+
+video_names_test = [np.str_('3279_21min_behaviour_2023-01-19T12_57_29'), np.str_('20231123_10min_OFT-BL_4028'), np.str_('BehavioralCamera2023-02-23T10_23_42_shorter'), np.str_('MBT1-M2'), np.str_('T2'), 'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1']
 video_names_train = [v for v in video_names if v not in video_names_test]
 
-video_names_test = ['T10']           ####################     DEBUG        ############################
-video_names_train = ["T4"]           ####################     DEBUG        ############################
+video_names_test = ['T1']           ####################     DEBUG        ############################
+#video_names_train = ["T3"]           ####################     DEBUG        ############################
 
 features_folder = "./data/rotated_videos"
 labels_folder = "./data/labels"
@@ -102,9 +126,9 @@ optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01) 
 
 if kernels and epoch == 0:
     for i in range(0, 5):
-        kernel_heatmap_3d(network.conv3d_1, f"./output/conv3d_1_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        kernel_heatmap_3d(network.conv3d_2, f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        kernel_heatmap_3d(network.conv3d_3, f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.initial_convolution[0], f"./output/conv3d_1_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.initial_convolution[3], f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.final_convolution[0], f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
 
 for epoch in range(epoch+1,2001):
 

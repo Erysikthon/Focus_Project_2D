@@ -61,7 +61,7 @@ class VideoRotator:
                 cx = tracking_dataframe.loc[n, centre+".x"]
                 cy = tracking_dataframe.loc[n, centre+".y"]
 
-                gray_frame = 255 - cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                 
                 tx = -(cx - self.original_width/2)
                 ty = -(cy - self.original_height/2)
@@ -77,7 +77,7 @@ class VideoRotator:
 
                 cropped_frame = rotated_frame[self.crop_y0:self.crop_y1, self.crop_x0:self.crop_x1]
 
-                normalized_frame = cv2.normalize(cropped_frame, None, -0.5, 0.5, cv2.NORM_MINMAX).astype(np.uint8)
+                normalized_frame = cv2.normalize(cropped_frame, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
                 self.out.write(normalized_frame)
                 pbar.update(1)
@@ -89,13 +89,9 @@ class VideoRotator:
         cv2.destroyAllWindows()
 
 video_names = []
-
-video_names.append("3278_21min_behaviour_2023-01-19T11_08_30.mp4")
-video_names.append("3279_21min_behaviour_2023-01-19T12_57_29.mp4")
-video_names.append("BehavioralCamera2023-03-09T10_37_32.mp4")
-video_names.append("BehavioralCamera2023-03-09T11_04_40.mp4")
-video_names.append("BehavioralCamera2023-03-09T11_41_07.mp4")
-video_names.append("BehavioralCamera2023-03-09T12_34_50.mp4")
+"""
+for i in range(1,20):
+    video_names.append(f"T{i}.avi")
 
 video_names.append("MBT1-M2.mp4")
 video_names.append("MBT1-M3.mp4")
@@ -106,6 +102,36 @@ video_names.append("MBT1-M11.mp4")
 video_names.append("MBT1-M14.mp4")
 video_names.append("MBT1-M15.mp4")
 video_names.append("MBT1-M18.mp4")
+
+video_names.append("3278_21min_behaviour_2023-01-19T11_08_30.mp4")
+video_names.append("3279_21min_behaviour_2023-01-19T12_57_29.mp4")
+video_names.append("BehavioralCamera2023-03-09T10_37_32.mp4")
+video_names.append("BehavioralCamera2023-03-09T11_04_40.mp4")
+video_names.append("BehavioralCamera2023-03-09T11_41_07.mp4")
+video_names.append("BehavioralCamera2023-03-09T12_34_50.mp4")
+"""
+video_names.append("20231123_10min_OFT-BL_3919.mp4")
+video_names.append("20231123_10min_OFT-BL_3961.mp4")
+video_names.append("20231123_10min_OFT-BL_3962.mp4")
+video_names.append("20231123_10min_OFT-BL_3963.mp4")
+video_names.append("20231123_10min_OFT-BL_3964.mp4")
+video_names.append("20231123_10min_OFT-BL_4025.mp4")
+video_names.append("20231123_10min_OFT-BL_4028.mp4")
+video_names.append("20231123_10min_OFT-BL_4029.mp4")
+video_names.append("BehavioralCamera2023-03-09T12_08_14.mp4")
+video_names.append("BehavioralCamera2023-03-09T13_02_04.mp4")
+video_names.append("BehavioralCamera2023-03-09T14_30_45.mp4")
+
+video_names.append("BehavioralCamera2023-02-14T13_05_19_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-14T15_22_37_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-15T14_40_46_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-18T10_33_06_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-18T12_37_43_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-19T14_53_53_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-23T10_23_42_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-23T15_42_37_shorter.mp4")
+video_names.append("BehavioralCamera2023-02-24T11_06_53_shorter.mp4")
+
 
 for v in video_names:
     rotator = VideoRotator(f"./data/raw_videos/{v}", f"./data/rotated_videos/{v[:-4]}" + ".mp4", 76, 142)

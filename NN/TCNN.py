@@ -13,7 +13,7 @@ from graphs import kernel_heatmap_3d
 from graphs import loss_over_epochs_lineplot
 from graphs import plot_confusion_matrix
 
-printo = True
+printo = False
 
 import torch
 import torch.nn as nn
@@ -44,22 +44,22 @@ class TCNN(nn.Module):
             nn.modules.Conv3d(32, 48, (5, 5, 5), (1, 1, 1), padding = 0),
             nn.modules.BatchNorm3d(48),
             nn.modules.ReLU(),
-            nn.modules.MaxPool3d((3, 1, 1), (2, 1, 1))
+            nn.modules.MaxPool3d((3, 2, 2), (2, 2, 2))
         )
 
         self.res_population_1 = nn.ModuleList()
-        for i in range(0, 2):
+        for i in range(0, 10):
             self.res_population_1.append(ResBlock(48))
 
         self.switch_1_2 = nn.modules.Sequential(
             nn.modules.Conv3d(48, 64, (5, 5, 5), (1, 1, 1), padding = 0),
             nn.modules.BatchNorm3d(64),
             nn.modules.ReLU(),
-            nn.modules.MaxPool3d((3, 3, 3), (2, 2, 2))
+            nn.modules.MaxPool3d((3, 2, 2), (2, 2, 2))
         )
         
         self.res_population_2 = nn.ModuleList()
-        for i in range(0, 2):
+        for i in range(0, 10):
             self.res_population_2.append(ResBlock(64))
         
         self.final_convolution = nn.modules.Sequential(
@@ -70,7 +70,7 @@ class TCNN(nn.Module):
             nn.modules.BatchNorm3d(64)
         )
 
-        self.fc_4 = nn.Linear(64*26*9, 1000)
+        self.fc_4 = nn.Linear(64*10*2, 1000)
         self.relu_4 = nn.ReLU()
         self.dropout_4 = nn.Dropout(0.5)
 

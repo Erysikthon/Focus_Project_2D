@@ -16,11 +16,11 @@ from graphs import f1_over_epochs
 from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
-r = 41
-epoch = 51
+r = 39
+epoch = 0
 name = f"TCNN_{epoch}.pt"
 video = True
-kernels = False
+kernels = True
 predict = True
 debug = False 
 
@@ -79,7 +79,7 @@ video_names_test = [np.str_('3279_21min_behaviour_2023-01-19T12_57_29'), np.str_
 video_names_train = [v for v in video_names if v not in video_names_test]
 
 video_names_test = ['T1']           ####################     DEBUG        ############################
-#video_names_train = ["T3"]           ####################     DEBUG        ############################
+#video_names_train = ["BehavioralCamera2023-02-24T11_06_53_shorter"]           ####################     DEBUG        ############################
 
 features_folder = "./data/rotated_videos"
 labels_folder = "./data/labels"
@@ -105,10 +105,10 @@ print(colors.GREEN + "Network initalized: " + colors.ENDC + f"{network}\n")
 total_params = sum(p.numel() for p in network.parameters())
 print(colors.CYAN + f"  Total parameters:" + colors.ENDC + f"{total_params:,}")
 if not epoch == 0:
-    network.load_state_dict(torch.load(f"./output/{name}"))
+    network.load_state_dict(torch.load(f"./output_TCNN/{name}"))
     print(colors.CYAN + f"Weights loaded successfully from: " + colors.ENDC + f"{name}")
     if predict:
-        stats = pd.read_csv(f"./output/stats.csv", index_col = 0)
+        stats = pd.read_csv(f"./output_TCNN/stats.csv", index_col = 0)
 else:
     cols = ["loss_train"]
     for behavior in behaviors.keys():
@@ -117,7 +117,7 @@ else:
     for behavior in behaviors.keys():
         cols.append(f"f1_{behavior}_test")
     stats = pd.DataFrame(columns = cols)
-    stats.to_csv(f"./output/stats.csv")
+    stats.to_csv(f"./output_TCNN/stats.csv")
 
 class_weights = torch.tensor(np.array([1, 1, 1, 1, 1], dtype = np.float32)).to(mps_device)
 loss_function = nn.CrossEntropyLoss(class_weights)
@@ -126,9 +126,11 @@ optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01) 
 
 if kernels and epoch == 0:
     for i in range(0, 5):
-        kernel_heatmap_3d(network.initial_convolution[0], f"./output/conv3d_1_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        kernel_heatmap_3d(network.initial_convolution[3], f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        kernel_heatmap_3d(network.final_convolution[0], f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.initial_convolution[0], f"./output_TCNN/initial_conv_1_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.res_population_1[9].H[0], f"./output_TCNN/res_population_1_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.switch_1_2[0], f"./output_TCNN/switch_1_2_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.res_population_2[9].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.final_convolution[3], f"./output_TCNN/final_conv_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
 
 for epoch in range(epoch+1,2001):
 
@@ -173,46 +175,48 @@ for epoch in range(epoch+1,2001):
 
         print(colors.CYAN + f"    train: " + colors.ENDC)
         print(classification_report(y_true_train, y_pred_train, labels = list(behaviors.values()), target_names=behaviors.keys()))
-        plot_confusion_matrix(y_true_train, y_pred_train, behaviors, f"./output/train_confusion_matrix_at_{epoch}.png")
+        plot_confusion_matrix(y_true_train, y_pred_train, behaviors, f"./output_TCNN/train_confusion_matrix_at_{epoch}.png")
 
         if kernels:
             for i in range(0, 5):
-                kernel_heatmap_3d(network.conv3d_1, f"./output/conv3d_1_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-                kernel_heatmap_3d(network.conv3d_2, f"./output/conv3d_2_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-                kernel_heatmap_3d(network.conv3d_3, f"./output/conv3d_3_kernel_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.initial_convolution[0], f"./output_TCNN/initial_conv_1_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.res_population_1[9].H[0], f"./output_TCNN/res_population_1_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.switch_1_2[0], f"./output_TCNN/switch_1_2_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.res_population_2[9].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.final_convolution[3], f"./output_TCNN/final_conv_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         
     if epoch % 15 == 0 and predict:
         test_mean_loss, y_true_test, y_pred_test = test_loop(test_data_loader, network, loss_function, mps_device)
 
         print(colors.CYAN + f"\n    test: " + colors.ENDC)
         print(classification_report(y_true_test, y_pred_test, labels = list(behaviors.values()), target_names=behaviors.keys()))
-        plot_confusion_matrix(y_true_test, y_pred_test, behaviors, f"./output/test_confusion_matrix_at_{epoch}.png")
+        plot_confusion_matrix(y_true_test, y_pred_test, behaviors, f"./output_TCNN/test_confusion_matrix_at_{epoch}.png")
 
-        pd.DataFrame(y_pred_test).to_csv(f"./output/y_pred_{epoch}.csv")
-        pd.DataFrame(y_true_test).to_csv(f"./output/y_true_{epoch}.csv")
+        pd.DataFrame(y_pred_test).to_csv(f"./output_TCNN/y_pred_{epoch}.csv")
+        pd.DataFrame(y_true_test).to_csv(f"./output_TCNN/y_true_{epoch}.csv")
 
         row_to_add = [train_mean_loss]
         row_to_add.extend(f1_score(y_true_train, y_pred_train, average = None,  labels = list(behaviors.values())))
         row_to_add.append(test_mean_loss)
         row_to_add.extend(f1_score(y_true_test, y_pred_test, average = None,  labels = list(behaviors.values())))
         stats.loc[epoch] = row_to_add
-        stats.to_csv(f"./output/stats.csv")
+        stats.to_csv(f"./output_TCNN/stats.csv")
 
-        loss_over_epochs_lineplot(stats.loc[:, "loss_train"], stats.loc[:, "loss_test"], f"./output/loss_at_{epoch}.png")
+        loss_over_epochs_lineplot(stats.loc[:, "loss_train"], stats.loc[:, "loss_test"], f"./output_TCNN/loss_at_{epoch}.png")
 
         f1_cols = []
         for behavior in behaviors.keys():
             f1_cols.append(f"f1_{behavior}_train")
             f1_cols.append(f"f1_{behavior}_test")
-        f1_over_epochs(stats.loc[:, f1_cols], behaviors, f"./output/f1_score_at_{epoch}.png")
+        f1_over_epochs(stats.loc[:, f1_cols], behaviors, f"./output_TCNN/f1_score_at_{epoch}.png")
 
         if video:
             offset = 0
             for dataset in test_data_loader.dataset.collection:
                 dataset : SingleVideoDataset
                 annotate_video_with_predictions(features_folder + "/" + dataset.file_name + ".mp4", pd.DataFrame(y_pred_test[offset: offset + dataset.get_range() - 1]), 
-                                                f"./output/predicted_video_{dataset.file_name}_epoch{epoch}.mp4", (dataset.r - 1)/2, 
+                                                f"./output_TCNN/predicted_video_{dataset.file_name}_epoch{epoch}.mp4", (dataset.r - 1)/2, 
                                                 pd.DataFrame(y_true_test[offset: offset + dataset.get_range() - 1]))
                 offset += dataset.get_range()
 
-    torch.save(network.state_dict(), f"./output/TCNN_{epoch}.pt")
+    torch.save(network.state_dict(), f"./output_TCNN/TCNN_{epoch}.pt")

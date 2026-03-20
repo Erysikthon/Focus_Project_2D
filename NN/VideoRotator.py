@@ -135,4 +135,4 @@ video_names.append("BehavioralCamera2023-02-24T11_06_53_shorter.mp4")
 
 for v in video_names:
     rotator = VideoRotator(f"./data/raw_videos/{v}", f"./data/rotated_videos/{v[:-4]}" + ".mp4", 76, 142)
-    rotator.follow(pd.read_csv(f"./data/features/{v[:-4]}" + ".csv"), "mouse_top.mouse_top_0.bodycentre","mouse_top.mouse_top_0.neck")
+    rotator.follow(pd.read_csv(f"./data/tracking/{v[:-4]}" + ".csv"), "mouse_top.mouse_top_0.bodycentre","mouse_top.mouse_top_0.neck")

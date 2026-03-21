@@ -409,18 +409,18 @@ if __name__ == "__main__":
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
     # Hyperparameters (optimized for speed + temporal context)
-    SEQUENCE_LENGTH = 60  # 2 seconds at 30 fps - captures behavior transitions
-    STRIDE = 30  # 50% overlap - balances coverage and training speed
-    IMG_SIZE = (96, 96)  # Reduced from (128, 128) for faster processing
+    SEQUENCE_LENGTH = 30
+    STRIDE = 10
+    IMG_SIZE = (128, 128)
     BATCH_SIZE = 32  # Increased from 16 for faster training
     NUM_EPOCHS = 100
     LEARNING_RATE = 0.0001
 
-    CNN_FEATURE_DIM = 256  # Reduced from 512
-    D_MODEL = 256  # Reduced from 512
+    CNN_FEATURE_DIM = 512
+    D_MODEL = 512
     NHEAD = 8
-    NUM_LAYERS = 3  # Reduced from 4
-    DIM_FEEDFORWARD = 1024  # Reduced from 2048
+    NUM_LAYERS = 4
+    DIM_FEEDFORWARD = 2048
     DROPOUT = 0.3
 
     # Device
@@ -471,27 +471,95 @@ if __name__ == "__main__":
     # Save behavior names for later use
     joblib.dump(behavior_names, LABEL_ENCODER_PATH)
 
-    # Create dataloaders (num_workers=4 for parallel data loading - HUGE speedup!)
-    train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                              num_workers=4, pin_memory=True, persistent_workers=True)
+    # Check if model already exists
+    if os.path.isfile(MODEL_PATH):
+        print(f"\n{'='*60}")
+        print(f"Found existing model at: {MODEL_PATH}")
+        print(f"Loading model instead of training...")
+        print(f"{'='*60}\n")
+
+        # Load checkpoint
+        checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+
+        # Initialize model with saved parameters
+        model = CNNTransformerClassifier(
+            cnn_feature_dim=checkpoint['cnn_feature_dim'],
+            d_model=checkpoint['d_model'],
+            nhead=checkpoint['nhead'],
+            num_layers=checkpoint['num_layers'],
+            num_classes=checkpoint['num_classes'],
+            dim_feedforward=checkpoint['dim_feedforward'],
+            dropout=DROPOUT
+        ).to(device)
+
+        # Load weights
+        model.load_state_dict(checkpoint['model_state_dict'])
+
+        print(f"✓ Model loaded successfully!")
+
+        # Print model architecture details
+        print(f"\n{'='*60}")
+        print(f"MODEL ARCHITECTURE")
+        print(f"{'='*60}")
+        print(f"CNN Feature Dimension:    {checkpoint['cnn_feature_dim']}")
+        print(f"Transformer d_model:      {checkpoint['d_model']}")
+        print(f"Number of attention heads: {checkpoint['nhead']}")
+        print(f"Number of layers:         {checkpoint['num_layers']}")
+        print(f"Feedforward dimension:    {checkpoint['dim_feedforward']}")
+        print(f"Number of classes:        {checkpoint['num_classes']}")
+        print(f"Dropout:                  {DROPOUT}")
+        print(f"Total parameters:         {sum(p.numel() for p in model.parameters()):,}")
+
+        # Print data/training hyperparameters
+        print(f"\n{'='*60}")
+        print(f"DATA & TRAINING HYPERPARAMETERS")
+        print(f"{'='*60}")
+        print(f"Sequence length:          {checkpoint['sequence_length']} frames ({checkpoint['sequence_length']/30:.1f} seconds)")
+        print(f"Image size:               {checkpoint['img_size'][0]}×{checkpoint['img_size'][1]}")
+        print(f"Batch size (current):     {BATCH_SIZE}")
+        print(f"Device:                   {device}")
+
+        # Print dataset info
+        print(f"\n{'='*60}")
+        print(f"DATASET INFO")
+        print(f"{'='*60}")
+        print(f"Training sequences:       {len(train_dataset)}")
+        print(f"Test sequences:           {len(test_dataset)}")
+        print(f"Classes:                  {behavior_names}")
+        print(f"{'='*60}\n")
+
+        # Skip training, go directly to evaluation
+        SKIP_TRAINING = True
+
+    else:
+        print(f"\nNo existing model found at: {MODEL_PATH}")
+        print(f"Training new model...\n")
+
+        # Create dataloaders (num_workers=4 for parallel data loading - HUGE speedup!)
+        train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
+                                  num_workers=4, pin_memory=True, persistent_workers=True)
+
+        # Initialize model
+        model = CNNTransformerClassifier(
+            cnn_feature_dim=CNN_FEATURE_DIM,
+            d_model=D_MODEL,
+            nhead=NHEAD,
+            num_layers=NUM_LAYERS,
+            num_classes=num_classes,
+            dim_feedforward=DIM_FEEDFORWARD,
+            dropout=DROPOUT
+        ).to(device)
+
+        print(f"\nModel architecture:\n{model}")
+        print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+        SKIP_TRAINING = False
+
+    # Create test dataloader (always needed for evaluation)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
                              num_workers=2, pin_memory=True)
 
-    # Initialize model
-    model = CNNTransformerClassifier(
-        cnn_feature_dim=CNN_FEATURE_DIM,
-        d_model=D_MODEL,
-        nhead=NHEAD,
-        num_layers=NUM_LAYERS,
-        num_classes=num_classes,
-        dim_feedforward=DIM_FEEDFORWARD,
-        dropout=DROPOUT
-    ).to(device)
-
-    print(f"\nModel architecture:\n{model}")
-    print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
-
-    # Class weights for imbalanced data
+    # Class weights for imbalanced data (needed for training or info)
     unique, counts = np.unique(train_dataset.labels, return_counts=True)
     class_counts = dict(zip(unique, counts))
     total_samples = len(train_dataset.labels)
@@ -515,57 +583,61 @@ if __name__ == "__main__":
 
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
 
-    # Loss and optimizer
-    criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
-    optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+    # Training loop (skip if model already exists)
+    if not SKIP_TRAINING:
+        # Loss and optimizer
+        criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
+        optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
 
-    # Learning rate scheduler
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
+        # Learning rate scheduler
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
-    # Training loop
-    best_f1 = 0.0
-    patience = 15
-    patience_counter = 0
+        best_f1 = 0.0
+        patience = 15
+        patience_counter = 0
 
-    for epoch in range(NUM_EPOCHS):
-        print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
+        for epoch in range(NUM_EPOCHS):
+            print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
 
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
+            train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
-        # Evaluate
-        y_pred, y_true = evaluate(model, test_loader, device)
-        test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
-        test_f1 = f1_score(y_true, y_pred, average='macro')
+            # Evaluate
+            y_pred, y_true = evaluate(model, test_loader, device)
+            test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
+            test_f1 = f1_score(y_true, y_pred, average='macro')
 
-        print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
-        print(f"Test Acc: {test_acc:.2f}%, Test F1: {test_f1:.4f}")
+            print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
+            print(f"Test Acc: {test_acc:.2f}%, Test F1: {test_f1:.4f}")
 
-        # Save best model
-        if test_f1 > best_f1:
-            best_f1 = test_f1
-            torch.save({
-                'model_state_dict': model.state_dict(),
-                'cnn_feature_dim': CNN_FEATURE_DIM,
-                'd_model': D_MODEL,
-                'nhead': NHEAD,
-                'num_layers': NUM_LAYERS,
-                'dim_feedforward': DIM_FEEDFORWARD,
-                'num_classes': num_classes,
-                'sequence_length': SEQUENCE_LENGTH,
-                'img_size': IMG_SIZE
-            }, MODEL_PATH)
-            print(f"→ New best model saved! F1: {best_f1:.4f}")
-            patience_counter = 0
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print("Early stopping triggered")
-                break
+            # Save best model
+            if test_f1 > best_f1:
+                best_f1 = test_f1
+                torch.save({
+                    'model_state_dict': model.state_dict(),
+                    'cnn_feature_dim': CNN_FEATURE_DIM,
+                    'd_model': D_MODEL,
+                    'nhead': NHEAD,
+                    'num_layers': NUM_LAYERS,
+                    'dim_feedforward': DIM_FEEDFORWARD,
+                    'num_classes': num_classes,
+                    'sequence_length': SEQUENCE_LENGTH,
+                    'img_size': IMG_SIZE
+                }, MODEL_PATH)
+                print(f"→ New best model saved! F1: {best_f1:.4f}")
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print("Early stopping triggered")
+                    break
+
+        # Load best model from training
+        print("\nLoading best model from training...")
+        checkpoint = torch.load(MODEL_PATH, map_location=device, weights_only=False)
+        model.load_state_dict(checkpoint['model_state_dict'])
 
     # Final evaluation
     print("\n=== Final Test Set Evaluation ===")
-    checkpoint = torch.load(MODEL_PATH, map_location=device)
-    model.load_state_dict(checkpoint['model_state_dict'])
 
     y_pred, y_true = evaluate(model, test_loader, device)
     print("\nClassification Report:")

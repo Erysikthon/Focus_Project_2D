@@ -401,7 +401,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v1"
+    DATASET_VERSION = "CNN_Transformer_v2_bidirectional_multiscale"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -447,12 +447,14 @@ if __name__ == "__main__":
     # Create datasets
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
     train_dataset = VideoSequenceDataset(VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-                                        SEQUENCE_LENGTH, STRIDE, IMG_SIZE)
+                                        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
+                                        sequence_lengths=[20, 30, 40])
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
     print(f"\nCreating test dataset from {len(test_video_ids)} videos...")
     test_dataset = VideoSequenceDataset(VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-                                       SEQUENCE_LENGTH, STRIDE, IMG_SIZE)
+                                       SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
+                                       sequence_lengths=None)  # Fixed length for test
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
@@ -559,6 +561,10 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
                              num_workers=2, pin_memory=True)
 
+    # Create train evaluation dataloader (for final evaluation only, not training)
+    train_eval_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                   num_workers=2, pin_memory=True)
+
     # Class weights for imbalanced data (needed for training or info)
     unique, counts = np.unique(train_dataset.labels, return_counts=True)
     class_counts = dict(zip(unique, counts))
@@ -637,22 +643,44 @@ if __name__ == "__main__":
         model.load_state_dict(checkpoint['model_state_dict'])
 
     # Final evaluation
-    print("\n=== Final Test Set Evaluation ===")
+    print("\n" + "="*60)
+    print("FINAL TRAINING SET EVALUATION")
+    print("="*60)
+
+    y_pred_train, y_true_train = evaluate(model, train_eval_loader, device)
+    print("\nClassification Report:")
+    print(classification_report(y_true_train, y_pred_train, target_names=behavior_names))
+
+    # Training confusion matrix
+    cm_train = confusion_matrix(y_true_train, y_pred_train)
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm_train, annot=True, fmt='d', cmap='Greens',
+                xticklabels=behavior_names,
+                yticklabels=behavior_names)
+    plt.title(f'Training Set Confusion Matrix - {DATASET_VERSION}')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    plt.savefig(f'./output_cnn_transformer/conf_matrix_train_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
+
+    print("\n" + "="*60)
+    print("FINAL TEST SET EVALUATION")
+    print("="*60)
 
     y_pred, y_true = evaluate(model, test_loader, device)
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, target_names=behavior_names))
 
-    # Confusion matrix
+    # Test confusion matrix
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
                 xticklabels=behavior_names,
                 yticklabels=behavior_names)
-    plt.title(f'Confusion Matrix - {DATASET_VERSION}')
+    plt.title(f'Test Set Confusion Matrix - {DATASET_VERSION}')
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
     plt.tight_layout()
-    plt.savefig(f'./output_cnn_transformer/conf_matrix_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
+    plt.savefig(f'./output_cnn_transformer/conf_matrix_test_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
 
     print(f"\nTotal time: {time.time() - start_time:.2f} seconds")

@@ -30,6 +30,32 @@ import joblib
 
 
 # ============================================================================
+# Helper Functions
+# ============================================================================
+
+def get_effective_num_weights(counts, beta=0.9999):
+    """
+    Calculate class weights using effective number of samples.
+    From: "Class-Balanced Loss Based on Effective Number of Samples" (CVPR 2019)
+
+    Args:
+        counts: Array of sample counts per class
+        beta: Hyperparameter controlling redundancy assumption
+              - 0.999: moderate imbalance
+              - 0.9999: extreme imbalance (recommended for long-tailed distributions)
+              - 0.99999: very extreme imbalance
+
+    Returns:
+        Array of normalized class weights
+    """
+    effective_nums = (1.0 - np.power(beta, counts)) / (1.0 - beta)
+    weights = 1.0 / effective_nums
+    # Normalize so weights sum to number of classes
+    weights = weights / weights.sum() * len(weights)
+    return weights
+
+
+# ============================================================================
 # CNN Feature Extractor (mostly copied from TCNN.py)
 # ============================================================================
 
@@ -113,6 +139,34 @@ class CNNFeatureExtractor(nn.Module):
 
 
 # ============================================================================
+# Temporal Convolution for Local Temporal Patterns
+# ============================================================================
+
+class TemporalConvBlock(nn.Module):
+    """1D convolution to capture local temporal patterns before transformer"""
+    def __init__(self, d_model, kernel_size=3):
+        super().__init__()
+        # Depthwise separable convolution for efficiency
+        self.conv = nn.Conv1d(d_model, d_model, kernel_size, padding=kernel_size//2, groups=d_model)
+        self.pointwise = nn.Conv1d(d_model, d_model, kernel_size=1)
+        self.norm = nn.LayerNorm(d_model)
+        self.activation = nn.GELU()
+
+    def forward(self, x):
+        """
+        x: (batch, seq_len, d_model)
+        returns: (batch, seq_len, d_model)
+        """
+        residual = x
+        x_t = x.transpose(1, 2)  # (batch, d_model, seq_len)
+        x_t = self.conv(x_t)
+        x_t = self.pointwise(x_t)
+        x_t = x_t.transpose(1, 2)  # (batch, seq_len, d_model)
+        x_t = self.activation(x_t)
+        return self.norm(residual + x_t)  # Residual connection
+
+
+# ============================================================================
 # Positional Encoding for Transformer
 # ============================================================================
 
@@ -161,6 +215,9 @@ class CNNTransformerClassifier(nn.Module):
         # Project CNN features to transformer dimension if needed
         self.feature_projection = nn.Linear(cnn_feature_dim, d_model) if cnn_feature_dim != d_model else nn.Identity()
 
+        # Temporal convolution to capture local temporal patterns
+        self.temporal_conv = TemporalConvBlock(d_model, kernel_size=3)
+
         # Positional encoding
         self.pos_encoder = PositionalEncoding(d_model, dropout=dropout * 0.5)
 
@@ -208,6 +265,9 @@ class CNNTransformerClassifier(nn.Module):
 
         # Project to transformer dimension
         x = self.feature_projection(cnn_features)  # (batch, seq_len, d_model)
+
+        # Apply temporal convolution to capture local temporal patterns
+        x = self.temporal_conv(x)  # (batch, seq_len, d_model)
 
         # Add CLS token
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, d_model)
@@ -401,7 +461,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v1"
+    DATASET_VERSION = "CNN_Transformer_v3_temp_conv_eff_number_weights"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -447,14 +507,12 @@ if __name__ == "__main__":
     # Create datasets
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
     train_dataset = VideoSequenceDataset(VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-                                        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
-                                        sequence_lengths=[20, 30, 40])
+                                        SEQUENCE_LENGTH, STRIDE, IMG_SIZE)
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
     print(f"\nCreating test dataset from {len(test_video_ids)} videos...")
     test_dataset = VideoSequenceDataset(VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-                                       SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
-                                       sequence_lengths=None)  # Fixed length for test
+                                       SEQUENCE_LENGTH, STRIDE, IMG_SIZE)
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
@@ -578,16 +636,20 @@ if __name__ == "__main__":
         percentage = 100 * count / total_samples
         print(f"{cls_name}: {count} ({percentage:.2f}%)")
 
-    # Calculate class weights (inverse frequency with 0.7 power to avoid extreme weights)
-    class_weights = {cls: (total_samples / (n_classes * count)) ** 0.7
-                    for cls, count in class_counts.items()}
+    # Calculate class weights using Effective Number of Samples
+    # This accounts for information redundancy in abundant classes
+    BETA = 0.9999  # Hyperparameter: 0.9999 for extreme imbalance (adjust if needed)
 
-    print(f"\n=== Class Weights ===")
+    counts_array = np.array([class_counts.get(i, 0) for i in range(num_classes)])
+    class_weights_array = get_effective_num_weights(counts_array, beta=BETA)
+
+    print(f"\n=== Effective Number Class Weights (beta={BETA}) ===")
     for cls_idx, cls_name in enumerate(behavior_names):
-        weight = class_weights.get(cls_idx, 1.0)
-        print(f"{cls_name}: {weight:.3f}")
+        weight = class_weights_array[cls_idx]
+        count = class_counts.get(cls_idx, 0)
+        print(f"{cls_name}: {weight:.3f} (count: {count})")
 
-    weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
+    weight_tensor = torch.FloatTensor(class_weights_array).to(device)
 
     # Training loop (skip if model already exists)
     if not SKIP_TRAINING:

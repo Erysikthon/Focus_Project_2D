@@ -149,12 +149,12 @@ class PositionalEncoding(nn.Module):
 
 class CNNTransformerClassifier(nn.Module):
     """
-    Combined CNN-Transformer for video behavior classification
+    Combined CNN-Transformer for per-frame video behavior classification
 
     Architecture:
     1. CNN extracts features from each frame independently
     2. Transformer processes temporal sequence of CNN features
-    3. Classification head predicts behavior
+    3. Classification head predicts behavior for each frame
     """
     def __init__(self, cnn_feature_dim=512, d_model=512, nhead=8,
                  num_layers=4, num_classes=5, dim_feedforward=2048, dropout=0.3):
@@ -169,9 +169,6 @@ class CNNTransformerClassifier(nn.Module):
         # Positional encoding
         self.pos_encoder = PositionalEncoding(d_model, dropout=dropout * 0.5)
 
-        # CLS token for classification (like BERT)
-        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
-
         # Transformer encoder
         encoder_layer = nn.TransformerEncoderLayer(
             d_model=d_model,
@@ -183,7 +180,7 @@ class CNNTransformerClassifier(nn.Module):
         )
         self.transformer = nn.TransformerEncoder(encoder_layer, num_layers=num_layers)
 
-        # Classification head
+        # Per-frame classification head
         self.classifier = nn.Sequential(
             nn.Linear(d_model, d_model),
             nn.LayerNorm(d_model),
@@ -199,7 +196,7 @@ class CNNTransformerClassifier(nn.Module):
     def forward(self, x):
         """
         x: (batch, seq_len, 1, H, W) - sequence of grayscale frames
-        returns: (batch, num_classes) - classification logits
+        returns: (batch, seq_len, num_classes) - per-frame classification logits
         """
         batch_size, seq_len, c, h, w = x.shape
 
@@ -214,21 +211,14 @@ class CNNTransformerClassifier(nn.Module):
         # Project to transformer dimension
         x = self.feature_projection(cnn_features)  # (batch, seq_len, d_model)
 
-        # Add CLS token
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, d_model)
-        x = torch.cat([cls_tokens, x], dim=1)  # (batch, seq_len+1, d_model)
-
         # Add positional encoding
-        x = self.pos_encoder(x)
+        x = self.pos_encoder(x)  # (batch, seq_len, d_model)
 
         # Transformer encoding
-        x = self.transformer(x)  # (batch, seq_len+1, d_model)
+        x = self.transformer(x)  # (batch, seq_len, d_model)
 
-        # Use CLS token for classification
-        cls_output = x[:, 0]  # (batch, d_model)
-
-        # Classification
-        logits = self.classifier(cls_output)  # (batch, num_classes)
+        # Per-frame classification
+        logits = self.classifier(x)  # (batch, seq_len, num_classes)
 
         return logits
 
@@ -240,32 +230,28 @@ class CNNTransformerClassifier(nn.Module):
 class VideoSequenceDataset(Dataset):
     """
     Lazy-loading dataset for video sequences (loads frames on-demand to save memory)
-    Supports multi-scale temporal windows for better handling of variable-duration behaviors
+    Returns per-frame labels for behavior transition detection
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
-                 stride=10, img_size=(128, 128), sequence_lengths=None):
+                 stride=10, img_size=(128, 128)):
         """
         Args:
             video_folder: Path to folder containing .mp4 files
             label_folder: Path to folder containing label CSV files
             video_ids: List of video IDs (filenames without extension)
-            sequence_length: Default number of frames per sequence (used if sequence_lengths is None)
+            sequence_length: Number of frames per sequence
             stride: Step size between sequences
             img_size: (height, width) to resize frames
-            sequence_lengths: List of sequence lengths for multi-scale training (e.g., [15, 30, 45])
-                             If None, uses fixed sequence_length
         """
         self.video_folder = video_folder
         self.label_folder = label_folder
         self.sequence_length = sequence_length
         self.stride = stride
         self.img_size = img_size
-        self.sequence_lengths = sequence_lengths if sequence_lengths is not None else [sequence_length]
-        self.use_multiscale = sequence_lengths is not None
 
         # Store metadata about sequences (not the actual frames)
-        self.sequence_info = []  # List of (video_id, start_frame, label, seq_len)
-        self.labels = []
+        self.sequence_info = []  # List of (video_id, start_frame)
+        self.labels = []  # For compatibility (will store first frame label of each sequence)
 
         print(f"Indexing sequences from {len(video_ids)} videos...")
         self._index_sequences(video_ids)
@@ -307,48 +293,39 @@ class VideoSequenceDataset(Dataset):
             cap.release()
 
             # Index sequences (don't load frames yet)
-            # Use maximum sequence length for indexing to ensure all frames are available
-            max_seq_len = max(self.sequence_lengths)
+            for start_idx in range(0, min(total_frames, len(video_labels)) - self.sequence_length + 1, self.stride):
+                # Store first frame label for compatibility with class weight calculation
+                first_frame_label = video_labels[start_idx]
 
-            for start_idx in range(0, min(total_frames, len(video_labels)) - max_seq_len + 1, self.stride):
-                # Use primary sequence length for label extraction
-                end_idx = start_idx + self.sequence_length
-                label = video_labels[end_idx - 1]
+                self.sequence_info.append((video_id, start_idx))
+                self.labels.append(first_frame_label)
 
-                # Randomly choose sequence length if using multi-scale
-                if self.use_multiscale:
-                    seq_len = np.random.choice(self.sequence_lengths)
-                else:
-                    seq_len = self.sequence_length
-
-                self.sequence_info.append((video_id, start_idx, label, seq_len))
-                self.labels.append(label)
-
-        multiscale_msg = f" (multi-scale: {self.sequence_lengths})" if self.use_multiscale else ""
-        print(f"Indexed {len(self.sequence_info)} sequences{multiscale_msg}")
+        print(f"Indexed {len(self.sequence_info)} sequences (per-frame labels)")
 
     def __len__(self):
         return len(self.sequence_info)
 
     def __getitem__(self, idx):
-        """Load video frames on-demand"""
-        # Handle both old format (3-tuple) and new format (4-tuple) for backward compatibility
-        seq_info = self.sequence_info[idx]
-        if len(seq_info) == 4:
-            video_id, start_frame, label, seq_len = seq_info
-        else:
-            # Old format without seq_len
-            video_id, start_frame, label = seq_info
-            seq_len = self.sequence_length
+        """Load video frames and per-frame labels on-demand"""
+        video_id, start_frame = self.sequence_info[idx]
 
         video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
+        label_path = os.path.join(self.label_folder, f"{video_id}_labels.csv")
+
+        # Load labels for this video
+        labels_df = pd.read_csv(label_path)
+        behavior_columns = [col for col in labels_df.columns if col not in ['Unnamed: 0', 'frame']]
+        video_labels = labels_df[behavior_columns].values.argmax(axis=1)
+
+        # Get labels for this sequence (all frames in the sequence)
+        sequence_labels = video_labels[start_frame:start_frame + self.sequence_length]
 
         # Open video and load the specific sequence
         cap = cv2.VideoCapture(video_path)
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
         frames = []
-        for _ in range(seq_len):
+        for _ in range(self.sequence_length):
             ret, frame = cap.read()
             if not ret:
                 # If we can't read a frame, use a black frame
@@ -363,24 +340,13 @@ class VideoSequenceDataset(Dataset):
         # Convert to numpy array
         frames = np.array(frames, dtype=np.float32)
 
-        # Normalize all sequences to fixed length (30) for batch processing
-        target_len = 30
-        if len(frames) < target_len:
-            # Pad with zeros (black frames)
-            padding = np.zeros((target_len - len(frames), *self.img_size), dtype=np.float32)
-            frames = np.concatenate([frames, padding], axis=0)
-        elif len(frames) > target_len:
-            # Sample frames uniformly to get target length
-            indices = np.linspace(0, len(frames) - 1, target_len, dtype=int)
-            frames = frames[indices]
-
         # Normalize to [0, 1]
         frames = frames / 255.0
 
         # Add channel dimension: (seq_len, H, W) -> (seq_len, 1, H, W)
         frames = frames[:, np.newaxis, :, :]
 
-        return torch.FloatTensor(frames), label
+        return torch.FloatTensor(frames), torch.LongTensor(sequence_labels)
 
 
 # ============================================================================
@@ -388,7 +354,7 @@ class VideoSequenceDataset(Dataset):
 # ============================================================================
 
 def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
-    """Train for one epoch"""
+    """Train for one epoch with per-frame predictions"""
     model.train()
     total_loss = 0
     correct = 0
@@ -396,11 +362,17 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
 
     for batch_X, batch_y in tqdm(dataloader, desc="Training"):
         batch_X = batch_X.to(device)
-        batch_y = batch_y.to(device)
+        batch_y = batch_y.to(device)  # (batch, seq_len)
 
         optimizer.zero_grad()
-        outputs = model(batch_X)
-        loss = criterion(outputs, batch_y)
+        outputs = model(batch_X)  # (batch, seq_len, num_classes)
+
+        # Reshape for loss computation
+        batch_size, seq_len, num_classes = outputs.shape
+        outputs_flat = outputs.view(batch_size * seq_len, num_classes)
+        labels_flat = batch_y.view(batch_size * seq_len)
+
+        loss = criterion(outputs_flat, labels_flat)
         loss.backward()
 
         # Gradient clipping
@@ -412,28 +384,83 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
             scheduler.step()
 
         total_loss += loss.item()
-        _, predicted = torch.max(outputs, 1)
-        total += batch_y.size(0)
+        _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
+        total += batch_y.numel()
         correct += (predicted == batch_y).sum().item()
 
     return total_loss / len(dataloader), 100 * correct / total
 
 
-def evaluate(model, dataloader, device):
-    """Evaluate model"""
+def evaluate(model, dataloader, device, use_consensus=True):
+    """
+    Evaluate model with per-frame predictions
+
+    Args:
+        use_consensus: If True, uses majority voting across overlapping sequences for each unique frame
+                      If False, treats all predictions independently (inflates metrics)
+    """
     model.eval()
-    all_preds = []
-    all_labels = []
+
+    if not use_consensus:
+        # Original behavior: treat all predictions independently
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for batch_X, batch_y in tqdm(dataloader, desc="Evaluating"):
+                batch_X = batch_X.to(device)
+                outputs = model(batch_X)  # (batch, seq_len, num_classes)
+                _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
+                all_preds.extend(predicted.cpu().numpy().flatten())
+                all_labels.extend(batch_y.numpy().flatten())
+        return np.array(all_preds), np.array(all_labels)
+
+    # Consensus voting: aggregate predictions per unique (video_id, frame_idx)
+    from collections import defaultdict
+    from scipy import stats
+
+    frame_predictions = defaultdict(list)  # {(video_id, frame_idx): [pred1, pred2, ...]}
+    frame_labels = {}  # {(video_id, frame_idx): true_label}
 
     with torch.no_grad():
-        for batch_X, batch_y in tqdm(dataloader, desc="Evaluating"):
+        for batch_idx, (batch_X, batch_y) in enumerate(tqdm(dataloader, desc="Evaluating")):
             batch_X = batch_X.to(device)
-            outputs = model(batch_X)
-            _, predicted = torch.max(outputs, 1)
-            all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(batch_y.numpy())
+            outputs = model(batch_X)  # (batch, seq_len, num_classes)
+            _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
 
-    return np.array(all_preds), np.array(all_labels)
+            predicted_np = predicted.cpu().numpy()
+            labels_np = batch_y.numpy()
+
+            # Get metadata for this batch
+            batch_size = batch_X.shape[0]
+            for b in range(batch_size):
+                # Calculate which sequence this is in the dataset
+                seq_idx = batch_idx * dataloader.batch_size + b
+                if seq_idx >= len(dataloader.dataset):
+                    continue
+
+                video_id, start_frame = dataloader.dataset.sequence_info[seq_idx]
+
+                # Record predictions for each frame in this sequence
+                for frame_offset in range(dataloader.dataset.sequence_length):
+                    frame_idx = start_frame + frame_offset
+                    key = (video_id, frame_idx)
+
+                    frame_predictions[key].append(predicted_np[b, frame_offset])
+                    frame_labels[key] = labels_np[b, frame_offset]  # Same label from all sequences
+
+    # Apply majority voting
+    consensus_preds = []
+    consensus_labels = []
+
+    for key in sorted(frame_predictions.keys()):
+        # Majority vote (mode)
+        preds = frame_predictions[key]
+        consensus_pred = stats.mode(preds, keepdims=False)[0]
+
+        consensus_preds.append(consensus_pred)
+        consensus_labels.append(frame_labels[key])
+
+    return np.array(consensus_preds), np.array(consensus_labels)
 
 
 # ============================================================================
@@ -444,7 +471,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v4_multiscale_only"
+    DATASET_VERSION = "CNN_Transformer_v5_per_frame"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -491,16 +518,14 @@ if __name__ == "__main__":
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
     train_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
-        sequence_lengths=[15, 30, 45]  # Multi-scale: short (0.5s), medium (1s), long (1.5s)
+        SEQUENCE_LENGTH, STRIDE, IMG_SIZE
     )
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
     print(f"\nCreating test dataset from {len(test_video_ids)} videos...")
     test_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
-        sequence_lengths=None  # Fixed length for test (consistent evaluation)
+        SEQUENCE_LENGTH, STRIDE, IMG_SIZE
     )
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
@@ -625,7 +650,7 @@ if __name__ == "__main__":
         percentage = 100 * count / total_samples
         print(f"{cls_name}: {count} ({percentage:.2f}%)")
 
-    # Calculate class weights (power of 0.7 for moderate balancing)
+    # Calculate class weights (power of 0.7)
     class_weights = {}
     for cls_idx in range(num_classes):
         count = class_counts.get(cls_idx, 0)

@@ -27,7 +27,7 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_everything"
+DATASET_VERSION = "Transformer_grid_1"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_everything.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_everything_filtered.csv"
@@ -450,6 +450,30 @@ if not os.path.isfile(model_path):
         print(f"Random split: Total videos: {n_videos}, Test videos: {test_videos}, Train videos: {n_videos - test_videos}")
         X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=test_videos, random_state=20)
 
+    # ========== GRID SEARCH CONFIGURATION ==========
+    # K-fold cross-validation on the TRAINING SET to find optimal hyperparameters.
+    # Test set is never used during grid search - only for final evaluation!!!!
+
+    ENABLE_GRID_SEARCH = True  # Set to False to skip grid search and use best params directly
+
+    # Grid search configuration (32 combinations)
+    param_grid = {
+        'd_model': [256, 512],
+        'num_layers': [3, 4],
+        'nhead': [4, 8],
+        'dim_feedforward': [1024],
+        'dropout': [0.3],
+        'lr': [0.0001, 0.0003],
+        'batch_size': [512],
+        'sequence_length': [30, 60],
+        'stride': [5]
+    }
+
+    n_folds = 3  # K-fold cross-validation
+    max_epochs_per_trial = 30  # Reduced epochs for grid search
+    early_stop_patience = 10  # Early stopping patience for each trial
+    # ===============================================
+
     # Encode string labels to integers
     label_encoder = LabelEncoder()
     y_train_encoded = pd.DataFrame(
@@ -476,6 +500,7 @@ if not os.path.isfile(model_path):
 
     total_samples = len(y_train_flat)
     n_classes = len(unique)
+    num_classes = n_classes  # For compatibility with grid search code
     # Use stronger weighting (between sqrt and full inverse) via power of 0.7
     class_weights = {cls: (total_samples / (n_classes * count)) ** 0.7 for cls, count in class_counts.items()}
     print(f"Class weights (0.7 power scaled): {class_weights}")
@@ -496,33 +521,221 @@ if not os.path.isfile(model_path):
     # Save scaler
     joblib.dump(scaler, scaler_path)
 
-    # Create sequence datasets with longer sequences and smaller stride
-    SEQUENCE_LENGTH = 60  # Increased from 30 (2 seconds at 30 fps for more context)
-    STRIDE = 3  # Reduced from 5 for more training data
-    print(f"Creating sequences with length {SEQUENCE_LENGTH} and stride {STRIDE}...")
+    # ========== GRID SEARCH WITH K-FOLD CV ==========
+    if ENABLE_GRID_SEARCH:
+        print("\n" + "="*60)
+        print("STARTING GRID SEARCH WITH K-FOLD CROSS-VALIDATION")
+        print("="*60)
+
+        from itertools import product
+        from sklearn.model_selection import KFold
+
+        # Generate all parameter combinations
+        param_names = list(param_grid.keys())
+        param_values = list(param_grid.values())
+        all_combinations = list(product(*param_values))
+
+        print(f"\nTotal combinations to test: {len(all_combinations)}")
+        print(f"K-folds: {n_folds}")
+        print(f"Max epochs per trial: {max_epochs_per_trial}\n")
+
+        # Get unique training video IDs for k-fold split
+        train_video_ids_array = X_train.index.get_level_values('video_id').unique().to_numpy()
+        kfold = KFold(n_splits=n_folds, shuffle=True, random_state=42)
+
+        best_val_f1 = 0.0
+        best_params = None
+        results = []
+
+        for combo_idx, param_combo in enumerate(all_combinations):
+            params = dict(zip(param_names, param_combo))
+            print(f"\n{'='*60}")
+            print(f"Testing combination {combo_idx + 1}/{len(all_combinations)}")
+            print(f"Parameters: {params}")
+            print(f"{'='*60}")
+
+            fold_f1_scores = []
+
+            # K-fold cross-validation
+            for fold, (train_idx, val_idx) in enumerate(kfold.split(train_video_ids_array)):
+                print(f"\n--- Fold {fold + 1}/{n_folds} ---")
+
+                # Split videos into train/val for this fold
+                fold_train_videos = train_video_ids_array[train_idx]
+                fold_val_videos = train_video_ids_array[val_idx]
+
+                X_fold_train = X_train_scaled.loc[X_train_scaled.index.get_level_values('video_id').isin(fold_train_videos)]
+                X_fold_val = X_train_scaled.loc[X_train_scaled.index.get_level_values('video_id').isin(fold_val_videos)]
+                y_fold_train = y_train_encoded.loc[y_train_encoded.index.get_level_values('video_id').isin(fold_train_videos)]
+                y_fold_val = y_train_encoded.loc[y_train_encoded.index.get_level_values('video_id').isin(fold_val_videos)]
+
+                # Create datasets with current hyperparameters
+                fold_train_dataset = SequenceDataset(X_fold_train, y_fold_train,
+                                                    sequence_length=params['sequence_length'],
+                                                    stride=params['stride'])
+                fold_val_dataset = SequenceDataset(X_fold_val, y_fold_val,
+                                                  sequence_length=params['sequence_length'],
+                                                  stride=params['stride'])
+
+                fold_train_loader = DataLoader(fold_train_dataset, batch_size=params['batch_size'],
+                                              shuffle=True, num_workers=0, pin_memory=True)
+                fold_val_loader = DataLoader(fold_val_dataset, batch_size=params['batch_size'],
+                                            shuffle=False, num_workers=0, pin_memory=True)
+
+                # Initialize model with current hyperparameters
+                input_size = X_train.shape[1]
+                device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
+
+                fold_model = TransformerClassifier(
+                    input_size=input_size,
+                    d_model=params['d_model'],
+                    nhead=params['nhead'],
+                    num_layers=params['num_layers'],
+                    num_classes=num_classes,
+                    dim_feedforward=params['dim_feedforward'],
+                    dropout=params['dropout']
+                ).to(device)
+
+                # Setup training
+                weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
+                fold_criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
+                fold_optimizer = optim.AdamW(fold_model.parameters(), lr=params['lr'],
+                                            weight_decay=0.01, betas=(0.9, 0.999))
+
+                # Simple learning rate schedule for quick training
+                fold_scheduler = optim.lr_scheduler.CosineAnnealingLR(fold_optimizer, T_max=max_epochs_per_trial)
+
+                # Train for limited epochs
+                best_fold_f1 = 0.0
+                patience_counter = 0
+
+                for epoch in range(max_epochs_per_trial):
+                    train_loss, train_acc = train_epoch(fold_model, fold_train_loader, fold_criterion,
+                                                       fold_optimizer, device, scheduler=None)
+                    fold_scheduler.step()
+
+                    # Evaluate on validation set
+                    y_pred_val, y_true_val = evaluate(fold_model, fold_val_loader, device)
+                    val_f1 = f1_score(y_true_val, y_pred_val, average='macro')
+
+                    if val_f1 > best_fold_f1:
+                        best_fold_f1 = val_f1
+                        patience_counter = 0
+                    else:
+                        patience_counter += 1
+                        if patience_counter >= early_stop_patience:
+                            print(f"  Early stopping at epoch {epoch + 1}")
+                            break
+
+                    if (epoch + 1) % 5 == 0:
+                        print(f"  Epoch {epoch + 1}/{max_epochs_per_trial}: Val F1 = {val_f1:.4f}")
+
+                print(f"  Best F1 for fold {fold + 1}: {best_fold_f1:.4f}")
+                fold_f1_scores.append(best_fold_f1)
+
+                # Clean up
+                del fold_model, fold_train_loader, fold_val_loader, fold_train_dataset, fold_val_dataset
+                torch.cuda.empty_cache() if torch.cuda.is_available() else None
+
+            # Calculate mean F1 across folds
+            mean_f1 = np.mean(fold_f1_scores)
+            std_f1 = np.std(fold_f1_scores)
+
+            print(f"\nMean validation F1: {mean_f1:.4f} (+/- {std_f1:.4f})")
+
+            results.append({
+                'params': params,
+                'mean_f1': mean_f1,
+                'std_f1': std_f1,
+                'fold_scores': fold_f1_scores
+            })
+
+            # Track best parameters
+            if mean_f1 > best_val_f1:
+                best_val_f1 = mean_f1
+                best_params = params
+                print(f"*** NEW BEST PARAMETERS! F1: {best_val_f1:.4f} ***")
+
+        # Save grid search results
+        import json
+        results_path = f"pipeline_saved_processes/models/grid_search_results_{DATASET_VERSION}.json"
+        with open(results_path, 'w') as f:
+            json.dump({
+                'best_params': best_params,
+                'best_f1': best_val_f1,
+                'all_results': [{'params': r['params'], 'mean_f1': r['mean_f1'], 'std_f1': r['std_f1']}
+                               for r in results]
+            }, f, indent=2)
+
+        print("\n" + "="*60)
+        print("GRID SEARCH COMPLETE")
+        print("="*60)
+        print(f"\nBest parameters: {best_params}")
+        print(f"Best validation F1: {best_val_f1:.4f}")
+        print(f"\nResults saved to: {results_path}")
+        print("\nTop 3 configurations:")
+        sorted_results = sorted(results, key=lambda x: x['mean_f1'], reverse=True)[:3]
+        for i, r in enumerate(sorted_results):
+            print(f"{i+1}. F1={r['mean_f1']:.4f} (+/-{r['std_f1']:.4f}): {r['params']}")
+
+        # Use best parameters for final training
+        SEQUENCE_LENGTH = best_params['sequence_length']
+        STRIDE = best_params['stride']
+        d_model = best_params['d_model']
+        num_layers = best_params['num_layers']
+        nhead = best_params['nhead']
+        dim_feedforward = best_params['dim_feedforward']
+        dropout = best_params['dropout']
+        learning_rate = best_params['lr']
+        batch_size = best_params['batch_size']
+    else:
+        # Use default parameters (or load from a previous grid search)
+        SEQUENCE_LENGTH = 60
+        STRIDE = 3
+        d_model = 768
+        nhead = 8
+        num_layers = 6
+        dim_feedforward = 3072
+        dropout = 0.4
+        learning_rate = 0.0003
+        batch_size = 512
+    # ================================================
+
+    # Create sequence datasets with selected hyperparameters
+    print(f"\nCreating final datasets with length {SEQUENCE_LENGTH} and stride {STRIDE}...")
     train_dataset = SequenceDataset(X_train_scaled, y_train_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
     test_dataset = SequenceDataset(X_test_scaled, y_test_encoded, sequence_length=SEQUENCE_LENGTH, stride=STRIDE)
 
     print(f"Total training sequences: {len(train_dataset)}, test sequences: {len(test_dataset)}")
     print(f"Class distribution in training sequences: {Counter(train_dataset.labels.numpy())}")
 
-    # Large batch size like reference model (512 vs 128)
-    train_loader = DataLoader(train_dataset, batch_size=512, shuffle=True, num_workers=0, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=512, shuffle=False, num_workers=0, pin_memory=True)
+    # Use batch size from grid search or default
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=0, pin_memory=True)
 
     # Initialize model - prioritize CUDA
     device = torch.device("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu")
-    print(f"Using device: {device}")
+    print(f"\nUsing device: {device}")
     if torch.cuda.is_available():
         print(f"GPU: {torch.cuda.get_device_name(0)}")
         print(f"CUDA Version: {torch.version.cuda}")
 
     input_size = X_train.shape[1]
-    d_model = 768        # Further increased from 512 for more capacity
-    nhead = 8            # Number of attention heads (must divide d_model)
-    num_layers = 6       # Further increased from 4 for deeper learning
-    dim_feedforward = 3072  # Increased from 2048 (4x d_model)
     num_classes = len(unique)
+
+    print(f"\n{'='*60}")
+    print("FINAL MODEL CONFIGURATION")
+    print(f"{'='*60}")
+    print(f"d_model: {d_model}")
+    print(f"nhead: {nhead}")
+    print(f"num_layers: {num_layers}")
+    print(f"dim_feedforward: {dim_feedforward}")
+    print(f"dropout: {dropout}")
+    print(f"learning_rate: {learning_rate}")
+    print(f"batch_size: {batch_size}")
+    print(f"sequence_length: {SEQUENCE_LENGTH}")
+    print(f"stride: {STRIDE}")
+    print(f"{'='*60}\n")
 
     model = TransformerClassifier(
         input_size=input_size,
@@ -531,7 +744,7 @@ if not os.path.isfile(model_path):
         num_layers=num_layers,
         num_classes=num_classes,
         dim_feedforward=dim_feedforward,
-        dropout=0.4  # Match reference model's high dropout
+        dropout=dropout
     ).to(device)
 
     print(f"Model architecture:\n{model}")
@@ -541,8 +754,8 @@ if not os.path.isfile(model_path):
     weight_tensor = torch.FloatTensor([class_weights[i] for i in range(num_classes)]).to(device)
     criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
 
-    # Optimizer with adjusted learning rate for larger model
-    optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=0.01, betas=(0.9, 0.999))
+    # Optimizer with learning rate from grid search
+    optimizer = optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01, betas=(0.9, 0.999))
 
     # Cosine annealing with warmup
     num_epochs = 150  # Reduced since cosine schedule will naturally decay

@@ -33,27 +33,6 @@ import joblib
 # Helper Functions
 # ============================================================================
 
-def get_effective_num_weights(counts, beta=0.9999):
-    """
-    Calculate class weights using effective number of samples.
-    From: "Class-Balanced Loss Based on Effective Number of Samples" (CVPR 2019)
-
-    Args:
-        counts: Array of sample counts per class
-        beta: Hyperparameter controlling redundancy assumption
-              - 0.999: moderate imbalance
-              - 0.9999: extreme imbalance (recommended for long-tailed distributions)
-              - 0.99999: very extreme imbalance
-
-    Returns:
-        Array of normalized class weights
-    """
-    effective_nums = (1.0 - np.power(beta, counts)) / (1.0 - beta)
-    weights = 1.0 / effective_nums
-    # Normalize so weights sum to number of classes
-    weights = weights / weights.sum() * len(weights)
-    return weights
-
 
 # ============================================================================
 # CNN Feature Extractor (mostly copied from TCNN.py)
@@ -139,34 +118,6 @@ class CNNFeatureExtractor(nn.Module):
 
 
 # ============================================================================
-# Temporal Convolution for Local Temporal Patterns
-# ============================================================================
-
-class TemporalConvBlock(nn.Module):
-    """1D convolution to capture local temporal patterns before transformer"""
-    def __init__(self, d_model, kernel_size=3):
-        super().__init__()
-        # Depthwise separable convolution for efficiency
-        self.conv = nn.Conv1d(d_model, d_model, kernel_size, padding=kernel_size//2, groups=d_model)
-        self.pointwise = nn.Conv1d(d_model, d_model, kernel_size=1)
-        self.norm = nn.LayerNorm(d_model)
-        self.activation = nn.GELU()
-
-    def forward(self, x):
-        """
-        x: (batch, seq_len, d_model)
-        returns: (batch, seq_len, d_model)
-        """
-        residual = x
-        x_t = x.transpose(1, 2)  # (batch, d_model, seq_len)
-        x_t = self.conv(x_t)
-        x_t = self.pointwise(x_t)
-        x_t = x_t.transpose(1, 2)  # (batch, seq_len, d_model)
-        x_t = self.activation(x_t)
-        return self.norm(residual + x_t)  # Residual connection
-
-
-# ============================================================================
 # Positional Encoding for Transformer
 # ============================================================================
 
@@ -214,9 +165,6 @@ class CNNTransformerClassifier(nn.Module):
 
         # Project CNN features to transformer dimension if needed
         self.feature_projection = nn.Linear(cnn_feature_dim, d_model) if cnn_feature_dim != d_model else nn.Identity()
-
-        # Temporal convolution to capture local temporal patterns
-        self.temporal_conv = TemporalConvBlock(d_model, kernel_size=3)
 
         # Positional encoding
         self.pos_encoder = PositionalEncoding(d_model, dropout=dropout * 0.5)
@@ -266,9 +214,6 @@ class CNNTransformerClassifier(nn.Module):
         # Project to transformer dimension
         x = self.feature_projection(cnn_features)  # (batch, seq_len, d_model)
 
-        # Apply temporal convolution to capture local temporal patterns
-        x = self.temporal_conv(x)  # (batch, seq_len, d_model)
-
         # Add CLS token
         cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, d_model)
         x = torch.cat([cls_tokens, x], dim=1)  # (batch, seq_len+1, d_model)
@@ -295,26 +240,31 @@ class CNNTransformerClassifier(nn.Module):
 class VideoSequenceDataset(Dataset):
     """
     Lazy-loading dataset for video sequences (loads frames on-demand to save memory)
+    Supports multi-scale temporal windows for better handling of variable-duration behaviors
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
-                 stride=10, img_size=(128, 128)):
+                 stride=10, img_size=(128, 128), sequence_lengths=None):
         """
         Args:
             video_folder: Path to folder containing .mp4 files
             label_folder: Path to folder containing label CSV files
             video_ids: List of video IDs (filenames without extension)
-            sequence_length: Number of frames per sequence
+            sequence_length: Default number of frames per sequence (used if sequence_lengths is None)
             stride: Step size between sequences
             img_size: (height, width) to resize frames
+            sequence_lengths: List of sequence lengths for multi-scale training (e.g., [15, 30, 45])
+                             If None, uses fixed sequence_length
         """
         self.video_folder = video_folder
         self.label_folder = label_folder
         self.sequence_length = sequence_length
         self.stride = stride
         self.img_size = img_size
+        self.sequence_lengths = sequence_lengths if sequence_lengths is not None else [sequence_length]
+        self.use_multiscale = sequence_lengths is not None
 
         # Store metadata about sequences (not the actual frames)
-        self.sequence_info = []  # List of (video_id, start_frame, label)
+        self.sequence_info = []  # List of (video_id, start_frame, label, seq_len)
         self.labels = []
 
         print(f"Indexing sequences from {len(video_ids)} videos...")
@@ -357,21 +307,40 @@ class VideoSequenceDataset(Dataset):
             cap.release()
 
             # Index sequences (don't load frames yet)
-            for start_idx in range(0, min(total_frames, len(video_labels)) - self.sequence_length + 1, self.stride):
+            # Use maximum sequence length for indexing to ensure all frames are available
+            max_seq_len = max(self.sequence_lengths)
+
+            for start_idx in range(0, min(total_frames, len(video_labels)) - max_seq_len + 1, self.stride):
+                # Use primary sequence length for label extraction
                 end_idx = start_idx + self.sequence_length
                 label = video_labels[end_idx - 1]
 
-                self.sequence_info.append((video_id, start_idx, label))
+                # Randomly choose sequence length if using multi-scale
+                if self.use_multiscale:
+                    seq_len = np.random.choice(self.sequence_lengths)
+                else:
+                    seq_len = self.sequence_length
+
+                self.sequence_info.append((video_id, start_idx, label, seq_len))
                 self.labels.append(label)
 
-        print(f"Indexed {len(self.sequence_info)} sequences")
+        multiscale_msg = f" (multi-scale: {self.sequence_lengths})" if self.use_multiscale else ""
+        print(f"Indexed {len(self.sequence_info)} sequences{multiscale_msg}")
 
     def __len__(self):
         return len(self.sequence_info)
 
     def __getitem__(self, idx):
         """Load video frames on-demand"""
-        video_id, start_frame, label = self.sequence_info[idx]
+        # Handle both old format (3-tuple) and new format (4-tuple) for backward compatibility
+        seq_info = self.sequence_info[idx]
+        if len(seq_info) == 4:
+            video_id, start_frame, label, seq_len = seq_info
+        else:
+            # Old format without seq_len
+            video_id, start_frame, label = seq_info
+            seq_len = self.sequence_length
+
         video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
 
         # Open video and load the specific sequence
@@ -379,7 +348,7 @@ class VideoSequenceDataset(Dataset):
         cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
 
         frames = []
-        for _ in range(self.sequence_length):
+        for _ in range(seq_len):
             ret, frame = cap.read()
             if not ret:
                 # If we can't read a frame, use a black frame
@@ -391,8 +360,22 @@ class VideoSequenceDataset(Dataset):
 
         cap.release()
 
-        # Convert to numpy array and normalize
-        frames = np.array(frames, dtype=np.float32) / 255.0
+        # Convert to numpy array
+        frames = np.array(frames, dtype=np.float32)
+
+        # Normalize all sequences to fixed length (30) for batch processing
+        target_len = 30
+        if len(frames) < target_len:
+            # Pad with zeros (black frames)
+            padding = np.zeros((target_len - len(frames), *self.img_size), dtype=np.float32)
+            frames = np.concatenate([frames, padding], axis=0)
+        elif len(frames) > target_len:
+            # Sample frames uniformly to get target length
+            indices = np.linspace(0, len(frames) - 1, target_len, dtype=int)
+            frames = frames[indices]
+
+        # Normalize to [0, 1]
+        frames = frames / 255.0
 
         # Add channel dimension: (seq_len, H, W) -> (seq_len, 1, H, W)
         frames = frames[:, np.newaxis, :, :]
@@ -461,7 +444,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v3_temp_conv_eff_number_weights"
+    DATASET_VERSION = "CNN_Transformer_v4_multiscale_only"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -506,13 +489,19 @@ if __name__ == "__main__":
 
     # Create datasets
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
-    train_dataset = VideoSequenceDataset(VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-                                        SEQUENCE_LENGTH, STRIDE, IMG_SIZE)
+    train_dataset = VideoSequenceDataset(
+        VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
+        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
+        sequence_lengths=[15, 30, 45]  # Multi-scale: short (0.5s), medium (1s), long (1.5s)
+    )
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
     print(f"\nCreating test dataset from {len(test_video_ids)} videos...")
-    test_dataset = VideoSequenceDataset(VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-                                       SEQUENCE_LENGTH, STRIDE, IMG_SIZE)
+    test_dataset = VideoSequenceDataset(
+        VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
+        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
+        sequence_lengths=None  # Fixed length for test (consistent evaluation)
+    )
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
@@ -595,7 +584,7 @@ if __name__ == "__main__":
         print(f"\nNo existing model found at: {MODEL_PATH}")
         print(f"Training new model...\n")
 
-        # Create dataloaders (num_workers=4 for parallel data loading - HUGE speedup!)
+        # Create dataloaders (num_workers=4 for parallel data loading)
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
                                   num_workers=4, pin_memory=True, persistent_workers=True)
 
@@ -636,14 +625,18 @@ if __name__ == "__main__":
         percentage = 100 * count / total_samples
         print(f"{cls_name}: {count} ({percentage:.2f}%)")
 
-    # Calculate class weights using Effective Number of Samples
-    # This accounts for information redundancy in abundant classes
-    BETA = 0.9999  # Hyperparameter: 0.9999 for extreme imbalance (adjust if needed)
+    # Calculate class weights (power of 0.7 for moderate balancing)
+    class_weights = {}
+    for cls_idx in range(num_classes):
+        count = class_counts.get(cls_idx, 0)
+        if count > 0:
+            class_weights[cls_idx] = (total_samples / (n_classes * count)) ** 0.7
+        else:
+            class_weights[cls_idx] = 1.0
 
-    counts_array = np.array([class_counts.get(i, 0) for i in range(num_classes)])
-    class_weights_array = get_effective_num_weights(counts_array, beta=BETA)
+    class_weights_array = np.array([class_weights[i] for i in range(num_classes)])
 
-    print(f"\n=== Effective Number Class Weights (beta={BETA}) ===")
+    print(f"\n=== Class Weights (power=0.7) ===")
     for cls_idx, cls_name in enumerate(behavior_names):
         weight = class_weights_array[cls_idx]
         count = class_counts.get(cls_idx, 0)

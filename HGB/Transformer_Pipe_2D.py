@@ -226,6 +226,7 @@ class SequenceDataset(Dataset):
         self.sequence_length = sequence_length
         self.sequences = []
         self.labels = []
+        self.sequence_info = []  # Track (video_id, start_frame) for consensus voting
 
         # Group by video_id
         for video_id in X.index.get_level_values('video_id').unique():
@@ -235,13 +236,14 @@ class SequenceDataset(Dataset):
             # Create sequences with stride to reduce memory usage
             for i in range(0, len(video_X) - sequence_length + 1, stride):
                 seq = video_X[i:i + sequence_length]
-                label = video_y[i + sequence_length - 1]  # Label is the last frame's behavior
+                labels_seq = video_y[i:i + sequence_length]  # All frame labels for the sequence
                 self.sequences.append(seq)
-                self.labels.append(label)
+                self.labels.append(labels_seq)
+                self.sequence_info.append((video_id, i))  # Store metadata
 
         self.sequences = torch.FloatTensor(np.array(self.sequences))
         self.labels = torch.LongTensor(np.array(self.labels).astype(np.int64))
-        print(f"Created {len(self.sequences)} sequences (stride={stride})")
+        print(f"Created {len(self.sequences)} sequences with per-frame labels (stride={stride})")
 
     def __len__(self):
         return len(self.sequences)
@@ -291,9 +293,6 @@ class TransformerClassifier(nn.Module):
             nn.Dropout(dropout * 0.5)
         )
 
-        # Learnable CLS token for classification (like BERT)
-        self.cls_token = nn.Parameter(torch.randn(1, 1, d_model))
-
         # Positional encoding
         self.pos_encoder = PositionalEncoding(d_model, dropout=dropout * 0.5)
 
@@ -328,45 +327,39 @@ class TransformerClassifier(nn.Module):
 
     def forward(self, x):
         # x shape: (batch, seq_len, input_size)
-        batch_size = x.size(0)
+        batch_size, seq_len, _ = x.size()
 
         # Project input to d_model dimensions
         x = self.input_projection(x)  # (batch, seq_len, d_model)
-
-        # Prepend CLS token
-        cls_tokens = self.cls_token.expand(batch_size, -1, -1)  # (batch, 1, d_model)
-        x = torch.cat([cls_tokens, x], dim=1)  # (batch, seq_len+1, d_model)
 
         # Add positional encoding
         x = self.pos_encoder(x)
 
         # Transformer encoding
-        x = self.transformer_encoder(x)  # (batch, seq_len+1, d_model)
+        x = self.transformer_encoder(x)  # (batch, seq_len, d_model)
 
-        # Extract CLS token representation
-        x = x[:, 0]  # (batch, d_model)
-
-        # Classification head with residual connections
+        # Per-frame classification head with residual connections
+        # Apply to all frames at once
         identity = x
-        x = self.fc1(x)
+        x = self.fc1(x)  # (batch, seq_len, d_model)
         x = self.ln1(x)
         x = torch.nn.functional.gelu(x)
         x = self.dropout(x)
         x = x + identity  # Residual connection
 
         identity = x
-        x = self.fc2(x)
+        x = self.fc2(x)  # (batch, seq_len, d_model)
         x = self.ln2(x)
         x = torch.nn.functional.gelu(x)
         x = self.dropout(x)
         x = x + identity  # Residual connection
 
-        x = self.fc3(x)
+        x = self.fc3(x)  # (batch, seq_len, d_model//2)
         x = self.ln3(x)
         x = torch.nn.functional.gelu(x)
         x = self.dropout(x)
 
-        x = self.fc_out(x)
+        x = self.fc_out(x)  # (batch, seq_len, num_classes)
         return x
 
 
@@ -381,8 +374,14 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
         batch_X, batch_y = batch_X.to(device), batch_y.to(device)
 
         optimizer.zero_grad()
-        outputs = model(batch_X)
-        loss = criterion(outputs, batch_y)
+        outputs = model(batch_X)  # (batch, seq_len, num_classes)
+
+        # Reshape for loss computation
+        batch_size, seq_len, num_classes = outputs.shape
+        outputs_flat = outputs.view(batch_size * seq_len, num_classes)
+        labels_flat = batch_y.view(batch_size * seq_len)
+
+        loss = criterion(outputs_flat, labels_flat)
         loss.backward()
 
         # Gradient clipping to prevent exploding gradients
@@ -395,28 +394,84 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
             scheduler.step()
 
         total_loss += loss.item()
-        _, predicted = torch.max(outputs, 1)
-        total += batch_y.size(0)
+        _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
+        total += batch_y.numel()
         correct += (predicted == batch_y).sum().item()
 
     return total_loss / len(dataloader), 100 * correct / total
 
 
 # Evaluation function
-def evaluate(model, dataloader, device):
+def evaluate(model, dataloader, device, use_consensus=True):
+    """
+    Evaluate model with per-frame predictions
+
+    Args:
+        use_consensus: If True, uses majority voting across overlapping sequences for each unique frame
+                      If False, treats all predictions independently (inflates metrics)
+    """
     model.eval()
-    all_preds = []
-    all_labels = []
+
+    if not use_consensus:
+        # Original behavior: treat all predictions independently
+        all_preds = []
+        all_labels = []
+        with torch.no_grad():
+            for batch_X, batch_y in dataloader:
+                batch_X = batch_X.to(device)
+                outputs = model(batch_X)  # (batch, seq_len, num_classes)
+                _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
+                all_preds.extend(predicted.cpu().numpy().flatten())
+                all_labels.extend(batch_y.numpy().flatten())
+        return np.array(all_preds), np.array(all_labels)
+
+    # Consensus voting: aggregate predictions per unique (video_id, frame_idx)
+    from collections import defaultdict
+    from scipy import stats
+
+    frame_predictions = defaultdict(list)  # {(video_id, frame_idx): [pred1, pred2, ...]}
+    frame_labels = {}  # {(video_id, frame_idx): true_label}
 
     with torch.no_grad():
-        for batch_X, batch_y in dataloader:
+        for batch_idx, (batch_X, batch_y) in enumerate(dataloader):
             batch_X = batch_X.to(device)
-            outputs = model(batch_X)
-            _, predicted = torch.max(outputs, 1)
-            all_preds.extend(predicted.cpu().numpy())
-            all_labels.extend(batch_y.numpy())
+            outputs = model(batch_X)  # (batch, seq_len, num_classes)
+            _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
 
-    return np.array(all_preds), np.array(all_labels)
+            predicted_np = predicted.cpu().numpy()
+            labels_np = batch_y.numpy()
+
+            # Get metadata for this batch
+            batch_size = batch_X.shape[0]
+            for b in range(batch_size):
+                # Calculate which sequence this is in the dataset
+                seq_idx = batch_idx * dataloader.batch_size + b
+                if seq_idx >= len(dataloader.dataset):
+                    continue
+
+                video_id, start_frame = dataloader.dataset.sequence_info[seq_idx]
+
+                # Record predictions for each frame in this sequence
+                for frame_offset in range(dataloader.dataset.sequence_length):
+                    frame_idx = start_frame + frame_offset
+                    key = (video_id, frame_idx)
+
+                    frame_predictions[key].append(predicted_np[b, frame_offset])
+                    frame_labels[key] = labels_np[b, frame_offset]  # Same label from all sequences
+
+    # Apply majority voting
+    consensus_preds = []
+    consensus_labels = []
+
+    for key in sorted(frame_predictions.keys()):
+        # Majority vote (mode)
+        preds = frame_predictions[key]
+        consensus_pred = stats.mode(preds, keepdims=False)[0]
+
+        consensus_preds.append(consensus_pred)
+        consensus_labels.append(frame_labels[key])
+
+    return np.array(consensus_preds), np.array(consensus_labels)
 
 
 if not os.path.isfile(model_path):

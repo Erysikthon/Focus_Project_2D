@@ -21,7 +21,7 @@ import torch.nn as nn
 class ResBlock(nn.Module):
     def __init__(self, channels):
         super().__init__()
-        self.H = nn.modules.Sequential(
+        self.H = nn.Sequential(
         nn.modules.Conv3d(channels, channels, (3, 3, 3), (1, 1, 1), (1, 1, 1)),
         nn.modules.BatchNorm3d(channels),
         nn.modules.ReLU(),
@@ -29,71 +29,88 @@ class ResBlock(nn.Module):
         nn.modules.BatchNorm3d(channels)
         )
 
+        self.relu = nn.modules.ReLU()
+
     def forward(self, x):
-        x = self.H(x)
-        return x
+        return self.relu(self.H(x) + x)
 
 class TCNN(nn.Module):
     def __init__(self):
         super().__init__()
 
-        self.initial_convolution = nn.modules.Sequential(
-            nn.modules.Conv3d(1, 32, (5, 5, 5), (1, 2, 2), padding = 0),
+        self.initial_convolution = nn.Sequential(
+            nn.modules.Conv3d(1, 32, (5, 5, 5), (1, 2, 2), padding = (2, 2, 2)),
             nn.modules.BatchNorm3d(32),
-            nn.modules.Conv3d(32, 48, (5, 5, 5), (1, 1, 1), padding = 0),
+            nn.modules.Conv3d(32, 48, (5, 5, 5), (1, 1, 1), padding = (2, 2, 2)),
             nn.modules.BatchNorm3d(48),
-            nn.modules.MaxPool3d((2, 2, 1), (2, 2, 1)),
             nn.modules.ReLU()
         )
 
         self.res_population_1 = nn.ModuleList()
-        for i in range(0, 20):
+        for i in range(0, 6):
             self.res_population_1.append(ResBlock(48))
 
-        self.switch_1_2 = nn.modules.Sequential(
-            nn.modules.Conv3d(48, 64, (5, 5, 5), (1, 1, 1), padding = 0),
+        self.switch_1_2 = nn.Sequential(
+            nn.modules.Conv3d(48, 64, (5, 5, 5), padding = (2, 2, 2)),
             nn.modules.BatchNorm3d(64),
             nn.modules.ReLU(),
-            nn.modules.MaxPool3d((3, 2, 2), (2, 2, 2))
+            nn.modules.MaxPool3d((1, 3, 2), (1, 3, 2)),
+            nn.modules.AvgPool3d((2, 1, 1), (2, 1, 1))
         )
         
         self.res_population_2 = nn.ModuleList()
-        for i in range(0, 20):
+        for i in range(0, 6):
             self.res_population_2.append(ResBlock(64))
         
-        self.switch_2_3 = nn.modules.Sequential(
-            nn.modules.Conv3d(64, 72, (3, 5, 5), (1, 1, 1), padding = 0),
+        self.switch_2_3 = nn.Sequential(
+            nn.modules.Conv3d(64, 72, (5, 5, 5), (1, 1, 1), padding = (2, 2, 2)),
             nn.modules.BatchNorm3d(72),
-            nn.modules.Conv3d(72, 72, (3, 3, 3), (1, 1, 1), padding = 0),
+            nn.modules.Conv3d(72, 72, (3, 3, 3), (1, 1, 1), padding = (1, 1, 1)),
             nn.modules.BatchNorm3d(72),
             nn.modules.ReLU(),
+            nn.modules.MaxPool3d((1, 2, 2), (1, 2, 2)),
+            nn.modules.AvgPool3d((2, 1, 1), (2, 1, 1))
         )
         
         self.res_population_3 = nn.ModuleList()
-        for i in range(0, 20):
+        for i in range(0, 6):
             self.res_population_3.append(ResBlock(72))
-        
-        self.final_convolution = nn.modules.Sequential(
-            nn.modules.Conv3d(72, 72, (1, 3, 3), (1, 1, 1), padding = 0),
-            nn.modules.BatchNorm3d(72),
+
+        self.switch_3_4 = nn.Sequential(
+            nn.modules.Conv3d(72, 96, (5, 5, 5), (1, 1, 1), padding = (2, 2, 2)),
+            nn.modules.BatchNorm3d(96),
+            nn.modules.Conv3d(96, 96, (3, 3, 3), (1, 1, 1), padding = (1, 1, 1)),
+            nn.modules.BatchNorm3d(96),
             nn.modules.ReLU(),
-            nn.modules.Conv3d(72, 72, (1, 3, 3), (1, 1, 1), padding = 0),
-            nn.modules.BatchNorm3d(72)
+            nn.modules.MaxPool3d((1, 2, 2), (1, 2, 2)),
+            nn.modules.AvgPool3d((2, 1, 1), (2, 1, 1))
+        )
+        
+        self.res_population_4 = nn.ModuleList()
+        for i in range(0, 6):
+            self.res_population_4.append(ResBlock(96))
+        
+        self.final_convolution = nn.Sequential(
+            nn.modules.Conv3d(96, 96, (3, 3, 3), (1, 1, 1), padding = (1, 1, 1)),
+            nn.modules.BatchNorm3d(96),
+            nn.modules.ReLU(),
+            nn.modules.Conv3d(96, 96, (3, 3, 3), (1, 1, 1), padding = (1, 1, 1)),
+            nn.modules.BatchNorm3d(96)
         )
 
-        self.fc_4 = nn.Linear(72*4*4, 500)
+        self.fc_4 = nn.Linear(96*5*4, 750)
         self.relu_4 = nn.GELU()
         self.dropout_4 = nn.Dropout(0.5)
 
-        self.fc_5 = nn.Linear(500, 200)
+        self.fc_5 = nn.Linear(750, 250)
         self.relu_5 = nn.ReLU()
         self.dropout_5 = nn.Dropout(0.4)
 
-        self.fc_6 = nn.Linear(200, 42)
+        self.fc_6 = nn.Linear(250, 50)
         self.relu_6 = nn.ReLU()
         self.dropout_6 = nn.Dropout(0.3)
 
-        self.fc_7 = nn.Linear(42, 5)
+        self.fc_7 = nn.Linear(50, 5)
 
     def forward(self, x : torch.Tensor):
 
@@ -108,7 +125,7 @@ class TCNN(nn.Module):
             print(f"{C}*{H}*{W} - {D}       after initial convolution")
         
         for res_block in self.res_population_1:
-            x = x + res_block(x)
+            x = res_block(x)
 
         if printo:
             B, C, D, H, W = x.shape
@@ -121,7 +138,7 @@ class TCNN(nn.Module):
             print(f"{C}*{H}*{W} - {D}       after switch 1-2")
 
         for res_block in self.res_population_2:
-            x = x + res_block(x)
+            x = res_block(x)
         
         if printo:
             B, C, D, H, W = x.shape
@@ -134,11 +151,24 @@ class TCNN(nn.Module):
             print(f"{C}*{H}*{W} - {D}       after switch 2-3")
 
         for res_block in self.res_population_3:
-            x = x + res_block(x)
+            x = res_block(x)
         
         if printo:
             B, C, D, H, W = x.shape
             print(f"{C}*{H}*{W} - {D}       after res population 3")
+
+        x = self.switch_3_4(x)
+
+        if printo:
+            B, C, D, H, W = x.shape
+            print(f"{C}*{H}*{W} - {D}       after switch 3-4")
+
+        for res_block in self.res_population_4:
+            x = res_block(x)
+        
+        if printo:
+            B, C, D, H, W = x.shape
+            print(f"{C}*{H}*{W} - {D}       after res population 4")
 
         x = self.final_convolution(x)
 

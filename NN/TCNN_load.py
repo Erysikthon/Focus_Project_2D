@@ -16,8 +16,8 @@ from graphs import f1_over_epochs
 from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
-r = 39
-epoch = 0
+r = 15
+epoch = 14
 name = f"TCNN_{epoch}.pt"
 video = True
 kernels = True
@@ -85,13 +85,13 @@ features_folder = "./data/rotated_videos"
 labels_folder = "./data/labels"
 behaviors = {"background" : 0, "Supportedrearing" : 1, "Unsupportedrearing" : 2, "Grooming" : 3, "Digging" : 4}
 
-train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 1120, 
+train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 5000, 
                               undersampling_dict = {"background" : 0.03, "Supportedrearing" : 0.4, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
                               random_state = None, identity = "TRAIN randomized dataset", debug = debug)
 test_set = SingleVideoDatasetCollection(features_folder, labels_folder, video_names_test, behaviors,s = 1, r = r, identity = "TEST single dataset collection")
 
-train_data_loader = DataLoader(train_set, 64)
-test_data_loader = DataLoader(test_set, 64)
+train_data_loader = DataLoader(train_set, 72)
+test_data_loader = DataLoader(test_set, 72)
 
 """
 train_set.__getitem__(0, debug = True)
@@ -121,15 +121,15 @@ else:
 
 class_weights = torch.tensor(np.array([1, 1, 1, 1, 1], dtype = np.float32)).to(mps_device)
 loss_function = nn.CrossEntropyLoss(class_weights)
-optimizer = torch.optim.AdamW(network.parameters(), 0.001, weight_decay = 0.01) # 0.001, weight_decay = 0.01
+optimizer = torch.optim.AdamW(network.parameters(), 1e-4, weight_decay = 1e-3) # 0.001, weight_decay = 0.01
 #torch.nn.init.uniform_(network.fc_4.weight, 0.1, 0.3) 
 
 if kernels and epoch == 0:
     for i in range(0, 5):
         kernel_heatmap_3d(network.initial_convolution[0], f"./output_TCNN/initial_conv_1_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        kernel_heatmap_3d(network.res_population_1[9].H[0], f"./output_TCNN/res_population_1_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.res_population_1[4].H[0], f"./output_TCNN/res_population_1_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         kernel_heatmap_3d(network.switch_1_2[0], f"./output_TCNN/switch_1_2_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-        kernel_heatmap_3d(network.res_population_2[9].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+        kernel_heatmap_3d(network.res_population_2[4].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         kernel_heatmap_3d(network.final_convolution[3], f"./output_TCNN/final_conv_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
 
 for epoch in range(epoch+1,2001):
@@ -138,31 +138,31 @@ for epoch in range(epoch+1,2001):
         class_weights = torch.tensor(np.array([1, 1, 1, 1, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.03, "Supportedrearing" : 0.4, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}
 
-    if epoch >= 40:
+    if epoch >= 20:
         class_weights = torch.tensor(np.array([1, 1, 1.3, 1, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.2, "Supportedrearing" : 0.7, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.45}
 
-    if epoch >= 80:
+    if epoch >= 40:
         class_weights = torch.tensor(np.array([0.5, 1, 1.5, 1, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.4, "Supportedrearing" : 0.7, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.6}
 
-    if epoch >= 120:
+    if epoch >= 60:
         class_weights = torch.tensor(np.array([0.25, 1, 2.5, 1.2, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 0.7, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 0.8}
 
-    if epoch >= 160:
+    if epoch >= 80:
         class_weights = torch.tensor(np.array([0.5, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
 
-    if epoch >= 200:
+    if epoch >= 100:
         class_weights = torch.tensor(np.array([0.5, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
-        optimizer = torch.optim.AdamW(network.parameters(), 0.0001, weight_decay = 0.001)
+        optimizer = torch.optim.AdamW(network.parameters(), 5e-5, weight_decay = 5e-4)
 
-    if epoch >= 240:
+    if epoch >= 120:
         class_weights = torch.tensor(np.array([0.5, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(mps_device)
         train_data_loader.dataset.undersampling_dict = undersampling_dict = {"background" : 1, "Supportedrearing" : 1, "Unsupportedrearing" : 1, "Grooming" : 1, "Digging" : 1}
-        optimizer = torch.optim.AdamW(network.parameters(), 0.00001, weight_decay = 0.0001)
+        optimizer = torch.optim.AdamW(network.parameters(), 1e-5, weight_decay = 1e-4)
 
     if epoch % 3 == 0:
         train_data_loader.dataset.undersample()
@@ -180,12 +180,12 @@ for epoch in range(epoch+1,2001):
         if kernels:
             for i in range(0, 5):
                 kernel_heatmap_3d(network.initial_convolution[0], f"./output_TCNN/initial_conv_1_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-                kernel_heatmap_3d(network.res_population_1[9].H[0], f"./output_TCNN/res_population_1_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.res_population_1[4].H[0], f"./output_TCNN/res_population_1_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
                 kernel_heatmap_3d(network.switch_1_2[0], f"./output_TCNN/switch_1_2_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
-                kernel_heatmap_3d(network.res_population_2[9].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
+                kernel_heatmap_3d(network.res_population_2[4].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
                 kernel_heatmap_3d(network.final_convolution[3], f"./output_TCNN/final_conv_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         
-    if epoch % 15 == 0 and predict:
+    if epoch % 50 == 0 and predict:
         test_mean_loss, y_true_test, y_pred_test = test_loop(test_data_loader, network, loss_function, mps_device)
 
         print(colors.CYAN + f"\n    test: " + colors.ENDC)

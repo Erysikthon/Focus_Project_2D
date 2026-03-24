@@ -21,13 +21,12 @@ warnings.filterwarnings("ignore", message="tracking data have not been smoothed"
 # ==================================================
 SKIP_HEAVY_VIZ = os.environ.get("CI", "").lower() in ("true", "1", "yes")
 ROOT_DIR = Path(__file__).resolve().parent
-DATA_DIR = ROOT_DIR / "collection"
+DATA_DIR = ROOT_DIR / "tracking"
 TAGS_CSV = ROOT_DIR / "tags.csv"
 OUT_DIR = Path(os.environ.get("NB_OUT_DIR", ROOT_DIR / "_artifacts"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 FPS = 30
 N_CLUSTERS = 25
-VIEW_TO_USE = "left"
 
 # ==================================================
 # Helpers
@@ -42,15 +41,11 @@ def print_section(title):
 # ==================================================
 print_section("LOAD TRACKING")
 tracking_dict = {}
-recording_dirs = sorted([p for p in DATA_DIR.iterdir() if p.is_dir()], key=lambda p: p.name)
 
-for recording_dir in recording_dirs:
-    video_handle = recording_dir.name
-    csv_path = recording_dir / f"{VIEW_TO_USE}.csv"
+csv_files = sorted(DATA_DIR.glob("*.csv"), key=lambda p: p.stem)
 
-    if not csv_path.exists():
-        print(f"Skipping {video_handle}: missing {VIEW_TO_USE}.csv")
-        continue
+for csv_path in csv_files:
+    video_handle = csv_path.stem   # filename without .csv
 
     tracking_dict[video_handle] = p3b.Tracking.from_yolo3r(
         filepath=str(csv_path),
@@ -84,8 +79,8 @@ print(tc)
 
 if len(tc) == 0:
     raise ValueError(
-        f"No recordings were loaded from {DATA_DIR}. "
-        f"Expected subfolders like 1/, 2/, 3/ each containing {VIEW_TO_USE}.csv."
+        f"No CSV files were loaded from {DATA_DIR}. "
+        f"Expected files like session1.csv, mouseA.csv, test_03.csv."
     )
 
 # ==================================================

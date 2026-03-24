@@ -3,8 +3,10 @@ from pathlib import Path
 
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
 from sklearn.metrics import classification_report, confusion_matrix
-from sklearn.model_selection import GroupShuffleSplit
+from sklearn.model_selection import GroupKFold, GridSearchCV, GroupShuffleSplit
+from sklearn.pipeline import Pipeline
 
 warnings.filterwarnings("ignore")
 
@@ -23,11 +25,15 @@ BEHAVIOR_COLUMNS = ["background", "Supportedrearing", "Unsupportedrearing", "Gro
 
 # Downsample only in training
 BACKGROUND_LABEL = "background"
-BACKGROUND_TO_MAX_RATIO = 2.0   # e.g. keep at most 2x as many background rows as all non-background rows
+BACKGROUND_TO_MAX_RATIO = 2.0   # keep at most 2x as many background rows as all non-background rows
 
 # Optional temporal smoothing of numeric features within each recording
 USE_TEMPORAL_SMOOTHING = True
 SMOOTHING_WINDOW = 5   # rolling mean window in frames
+
+# Grid search settings
+CV_SPLITS = 5
+SCORING = "f1_macro"
 
 
 # ==================================================
@@ -256,6 +262,7 @@ print_section("TRAINING DOWNSAMPLING")
 
 train_df = X_train.copy()
 train_df["label"] = y_train.values
+train_df["group"] = groups_train.values
 
 train_df_balanced = downsample_background(
     train_df,
@@ -264,8 +271,9 @@ train_df_balanced = downsample_background(
     random_state=RANDOM_STATE,
 )
 
-X_train_bal = train_df_balanced.drop(columns=["label"]).copy()
+X_train_bal = train_df_balanced.drop(columns=["label", "group"]).copy()
 y_train_bal = train_df_balanced["label"].copy()
+groups_train_bal = train_df_balanced["group"].copy()
 
 print(f"Train samples after downsampling: {len(X_train_bal)}")
 print("\nTrain class counts after downsampling:")
@@ -273,19 +281,49 @@ print(y_train_bal.value_counts())
 
 
 # ==================================================
-# TRAIN RANDOM FOREST
+# GRID SEARCH RANDOM FOREST
 # ==================================================
-print_section("TRAIN RANDOM FOREST")
+print_section("GRID SEARCH RANDOM FOREST")
 
-model = RandomForestClassifier(
-    n_estimators=300,
-    random_state=RANDOM_STATE,
+pipeline = Pipeline([
+    ("imputer", SimpleImputer(strategy="median")),
+    ("rf", RandomForestClassifier(
+        random_state=RANDOM_STATE,
+        n_jobs=-1,
+    ))
+])
+
+# Moderate grid to avoid excessively long runtimes
+param_grid = {
+    "rf__n_estimators": [200],
+    "rf__max_depth": [10, None],
+    "rf__min_samples_split": [2, 10],
+    "rf__min_samples_leaf": [1, 5],
+    "rf__max_features": ["sqrt"],
+    "rf__class_weight": ["balanced", "balanced_subsample"],
+}
+
+cv = GroupKFold(n_splits=CV_SPLITS)
+
+grid = GridSearchCV(
+    estimator=pipeline,
+    param_grid=param_grid,
+    scoring=SCORING,
+    cv=cv,
     n_jobs=-1,
-    class_weight="balanced_subsample",
-    min_samples_leaf=5,
+    verbose=2,
+    refit=True,
 )
 
-model.fit(X_train_bal, y_train_bal)
+print("Starting grid search...")
+grid.fit(X_train_bal, y_train_bal, groups=groups_train_bal)
+
+print("\nBest CV score:", grid.best_score_)
+print("Best parameters:")
+for k, v in grid.best_params_.items():
+    print(f"{k}: {v}")
+
+best_model = grid.best_estimator_
 
 
 # ==================================================
@@ -293,7 +331,7 @@ model.fit(X_train_bal, y_train_bal)
 # ==================================================
 print_section("EVALUATE")
 
-y_pred = model.predict(X_test)
+y_pred = best_model.predict(X_test)
 
 print("Classification report:")
 print(classification_report(y_test, y_pred, digits=3))
@@ -338,7 +376,21 @@ for handle in sort_mixed(test_results["group"].unique()):
 # ==================================================
 print_section("TOP FEATURE IMPORTANCE")
 
-importances = pd.Series(model.feature_importances_, index=X_train_bal.columns)
+rf_model = best_model.named_steps["rf"]
+importances = pd.Series(rf_model.feature_importances_, index=X_train_bal.columns)
 importances = importances.sort_values(ascending=False)
 
 print(importances.head(20))
+
+
+# ==================================================
+# SAVE GRID SEARCH RESULTS
+# ==================================================
+print_section("SAVE GRID SEARCH RESULTS")
+
+results_df = pd.DataFrame(grid.cv_results_)
+results_path = ROOT_DIR / "rf_gridsearch_results.csv"
+results_df.to_csv(results_path, index=False)
+
+print(f"Saved full CV results to: {results_path}")
+print("Done.")

@@ -1,13 +1,13 @@
 """
-CNN-Transformer Pipeline for Mouse Behavior Classification from Raw Video
+CNN-Transformer Pipeline
 
 Architecture:
 1. CNN Feature Extractor: Extracts spatial features from individual video frames
 2. Transformer: Captures temporal dependencies across frame sequences
-3. Classification Head: Predicts behavior labels
+3. Classification Head: Predicts behavior labels (per-frame)
 
 Input: Raw video frames from rotated_videos folder
-Output: Behavior classification per frame/sequence
+Output: Behavior classification per frame(sequence??maybe better)
 """
 
 import torch
@@ -27,12 +27,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import Counter
 import joblib
-
-
-# ============================================================================
-# Helper Functions
-# ============================================================================
-
 
 # ============================================================================
 # CNN Feature Extractor (mostly copied from TCNN.py)
@@ -154,7 +148,7 @@ class CNNTransformerClassifier(nn.Module):
     Architecture:
     1. CNN extracts features from each frame independently
     2. Transformer processes temporal sequence of CNN features
-    3. Classification head predicts behavior for each frame
+    3. Classification head predicts behavior for each frame (stride 10 -> 1 frame in 3 diff sequences, majority voting)
     """
     def __init__(self, cnn_feature_dim=512, d_model=512, nhead=8,
                  num_layers=4, num_classes=5, dim_feedforward=2048, dropout=0.3):
@@ -229,7 +223,7 @@ class CNNTransformerClassifier(nn.Module):
 
 class VideoSequenceDataset(Dataset):
     """
-    Lazy-loading dataset for video sequences (loads frames on-demand to save memory)
+    Lazy-loading dataset for video sequences (loads frames on-demand to save memory): otherwise crashes :C
     Returns per-frame labels for behavior transition detection
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
@@ -395,9 +389,9 @@ def evaluate(model, dataloader, device, use_consensus=True):
     """
     Evaluate model with per-frame predictions
 
-    Args:
+    Arguments:
         use_consensus: If True, uses majority voting across overlapping sequences for each unique frame
-                      If False, treats all predictions independently (inflates metrics)
+                      If False, treats all predictions independently (inflates metrics: 3 times the same frame predicted kinda)
     """
     model.eval()
 

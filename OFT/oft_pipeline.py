@@ -21,7 +21,7 @@ warnings.filterwarnings("ignore", message="tracking data have not been smoothed"
 # ==================================================
 SKIP_HEAVY_VIZ = os.environ.get("CI", "").lower() in ("true", "1", "yes")
 ROOT_DIR = Path(__file__).resolve().parent
-DATA_DIR = ROOT_DIR / "tracking"
+DATA_DIR = ROOT_DIR / "tracking_3d"
 TAGS_CSV = ROOT_DIR / "tags.csv"
 OUT_DIR = Path(os.environ.get("NB_OUT_DIR", ROOT_DIR / "_artifacts"))
 OUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -40,80 +40,21 @@ def print_section(title):
 # LOAD TRACKING
 # ==================================================
 print_section("LOAD TRACKING")
-tracking_dict = {}
-
-csv_files = sorted(DATA_DIR.glob("*.csv"), key=lambda p: p.stem)
-
-for csv_path in csv_files:
-    video_handle = csv_path.stem   # filename without .csv
-
-    tracking_dict[video_handle] = p3b.Tracking.from_yolo3r(
-        filepath=str(csv_path),
-        handle=video_handle,
-        fps=FPS,
-    )
-
-    rename_map = {}
-    valid_suffixes = {"x", "y", "conf", "likelihood"}
-
-    for col in tracking_dict[video_handle].data.columns:
-        if col in {"frame_index", "max_dim.x", "max_dim.y"}:
-            continue
-
-        parts = col.split(".")
-        if len(parts) >= 2 and parts[-1] in valid_suffixes:
-            suffix = "likelihood" if parts[-1] == "conf" else parts[-1]
-            rename_map[col] = f"{parts[-2]}.{suffix}"
-
-    if rename_map:
-        tracking_dict[video_handle].data = tracking_dict[video_handle].data.rename(columns=rename_map)
-
-    if not isinstance(getattr(tracking_dict[video_handle], "meta", None), dict):
-        tracking_dict[video_handle].meta = {}
-    tracking_dict[video_handle].meta.setdefault("fps", FPS)
-
-tracking_collection = p3b.TrackingCollection(tracking_dict)
-tc = tracking_collection
-print(f"Initial videos loaded: {len(tracking_dict)}")
+tc = p3b.TrackingCollection.from_yolo3r_folder(folder_path=DATA_DIR, fps=FPS)
 print(tc)
-
-if len(tc) == 0:
-    raise ValueError(
-        f"No CSV files were loaded from {DATA_DIR}. "
-        f"Expected files like session1.csv, mouseA.csv, test_03.csv."
-    )
 
 # ==================================================
 # PREPROCESS
 # ==================================================
 print_section("PREPROCESS")
-tc.each.filter_likelihood(threshold=0.9)
+tc.each.strip_column_names()
+tc.each.filter_likelihood(threshold=0.7)
 tc.each.interpolate(limit=5)
 tc.each.smooth_all(window=3, method="mean")
 tc.each.rescale_by_known_distance(
     point1="tl",
     point2="br",
     distance_in_metres=0.64,
-)
-
-# ==================================================
-# QC PLOTS
-# ==================================================
-print_section("QC PLOTS")
-trajectories = ["bodycentre"]
-static = ["tl", "tr", "bl", "br"]
-lines = [
-    ("tr", "tl"),
-    ("tl", "bl"),
-    ("bl", "br"),
-    ("br", "tr"),
-]
-first_key = list(tc.keys())[0]
-tc[first_key].plot(
-    trajectories=trajectories,
-    static=static,
-    lines=lines,
-    show=True,
 )
 
 # ==================================================
@@ -184,7 +125,7 @@ dist_change_in_centre.store(name="dist_change_bodycentre_in_centre")
 # ==================================================
 print_section("KINEMATIC FEATURES")
 for pt in ["nose", "neck", "earr", "earl", "bodycentre", "hipl", "hipr", "tailbase"]:
-    fc.each.speed(pt).store()
+    fc.each.speed(pt, dims=["x", "y", "z"]).store()
 for basepoint, pointdirection1, pointdirection2 in [
     ("tailbase", "hipr", "hipl"),
     ("bodycentre", "tailbase", "neck"),
@@ -208,7 +149,7 @@ for p1, p2 in [
     ("nose", "earr"),
     ("nose", "earl"),
 ]:
-    fc.each.distance_between(p1, p2).store()
+    fc.each.distance_between(p1, p2, dims=["x", "y", "z"]).store()
 
 # ==================================================
 # DYNAMIC BODY FEATURES
@@ -236,6 +177,7 @@ embedding_dict = {f: offset for f in cluster_features}
 cluster_labels, centroids, _ = fc.cluster_embedding_stream(
     embedding_dict=embedding_dict,
     n_clusters=N_CLUSTERS,
+    missing_policy="impute_weight",
 )
 cluster_labels.store(f"kmeans_{N_CLUSTERS}", overwrite=True)
 fc.save(f"{OUT_DIR}/features", data_format="csv", overwrite=True)

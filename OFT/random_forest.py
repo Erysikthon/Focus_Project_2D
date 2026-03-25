@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.metrics import classification_report, confusion_matrix, f1_score
 from sklearn.model_selection import GroupShuffleSplit
 
 warnings.filterwarnings("ignore")
@@ -223,7 +223,7 @@ print(df_all["group"].value_counts().sort_index())
 # ==================================================
 print_section("GROUP-BASED TRAIN / TEST SPLIT")
 
-X_all = df_all.drop(columns=["label", "group"])
+X_all = df_all.drop(columns=["frame_index", "label", "group"])
 y_all = df_all["label"]
 groups = df_all["group"]
 
@@ -278,11 +278,14 @@ print(y_train_bal.value_counts())
 print_section("TRAIN RANDOM FOREST")
 
 model = RandomForestClassifier(
-    n_estimators=300,
+    n_estimators=200,
     random_state=RANDOM_STATE,
     n_jobs=-1,
     class_weight="balanced_subsample",
+    max_depth=None,
+    max_features="sqrt",
     min_samples_leaf=5,
+    min_samples_split=2,
 )
 
 model.fit(X_train_bal, y_train_bal)

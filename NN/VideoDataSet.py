@@ -253,7 +253,7 @@ class SingleVideoDataset(Dataset):
         X_tensor = torch.from_numpy((-(X/255-0.5)).astype(np.float32))
         X_tensor = X_tensor.permute(2, 0, 1).unsqueeze(0)
 
-        y_raw = pd.read_csv(self.labels_folder + "/" + self.file_name + ".csv").iloc[int(index * self.s + (self.r - 1)/2) : int((index + 1) * (self.s) + (self.r - 1)/2)].reset_index(drop = True)
+        y_raw = pd.read_csv(self.labels_folder + "/" + self.file_name + ".csv", index_col=0).iloc[int(index * self.s + (self.r - 1)/2) : int((index + 1) * (self.s) + (self.r - 1)/2)].reset_index(drop = True)
         y = pd.Series(np.zeros(self.s, dtype = int) - 1)
 
         for behavior in self.behaviors:

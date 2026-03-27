@@ -16,11 +16,11 @@ from graphs import f1_over_epochs
 from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
-r = 15
-epoch = 14
+r = 3
+epoch = 0
 name = f"TCNN_{epoch}.pt"
 video = True
-kernels = True
+kernels = False
 predict = True
 debug = False 
 
@@ -75,23 +75,23 @@ video_names.append("BehavioralCamera2023-02-24T11_06_53_shorter")
 
 
 
-video_names_test = [np.str_('3279_21min_behaviour_2023-01-19T12_57_29'), np.str_('20231123_10min_OFT-BL_4028'), np.str_('BehavioralCamera2023-02-23T10_23_42_shorter'), np.str_('MBT1-M2'), np.str_('T2'), 'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1']
+video_names_test = [np.str_('BehavioralCamera2023-02-23T10_23_42_shorter'),np.str_('20231123_10min_OFT-BL_4028'),  np.str_('3279_21min_behaviour_2023-01-19T12_57_29'), np.str_('MBT1-M2'), np.str_('T2'), 'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1']
 video_names_train = [v for v in video_names if v not in video_names_test]
 
-video_names_test = ['T1']           ####################     DEBUG        ############################
-#video_names_train = ["BehavioralCamera2023-02-24T11_06_53_shorter"]           ####################     DEBUG        ############################
+#video_names_test = ['T1']           ####################     DEBUG        ############################
+video_names_train = ["BehavioralCamera2023-02-24T11_06_53_shorter"]           ####################     DEBUG        ############################
 
 features_folder = "./data/rotated_videos"
 labels_folder = "./data/labels"
 behaviors = {"background" : 0, "Supportedrearing" : 1, "Unsupportedrearing" : 2, "Grooming" : 3, "Digging" : 4}
 
-train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 5000, 
+train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train, behaviors, s = 1, r = r, n = 1, 
                               undersampling_dict = {"background" : 0.03, "Supportedrearing" : 0.4, "Unsupportedrearing" : 1, "Grooming" : 0.8, "Digging" : 0.3}, 
                               random_state = None, identity = "TRAIN randomized dataset", debug = debug)
 test_set = SingleVideoDatasetCollection(features_folder, labels_folder, video_names_test, behaviors,s = 1, r = r, identity = "TEST single dataset collection")
 
 train_data_loader = DataLoader(train_set, 72)
-test_data_loader = DataLoader(test_set, 72)
+test_data_loader = DataLoader(test_set, 5000)
 
 """
 train_set.__getitem__(0, debug = True)
@@ -185,7 +185,7 @@ for epoch in range(epoch+1,2001):
                 kernel_heatmap_3d(network.res_population_2[4].H[0], f"./output_TCNN/res_population_2_nr_9_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
                 kernel_heatmap_3d(network.final_convolution[3], f"./output_TCNN/final_conv_at_{i}_heatmap_3d_at_{epoch}.png", i, 0)
         
-    if epoch % 50 == 0 and predict:
+    if epoch % 1 == 0 and predict:
         test_mean_loss, y_true_test, y_pred_test = test_loop(test_data_loader, network, loss_function, mps_device)
 
         print(colors.CYAN + f"\n    test: " + colors.ENDC)

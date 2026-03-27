@@ -1,5 +1,5 @@
 """
-CNN-Transformer Pipeline c:
+CNN-Transformer Pipeline
 
 Architecture:
 1. CNN Feature Extractor: Extracts spatial features from individual video frames
@@ -21,11 +21,9 @@ import os
 import math
 import time
 from tqdm import tqdm
-from sklearn.preprocessing import LabelEncoder
 from sklearn.metrics import classification_report, f1_score, confusion_matrix
 import matplotlib.pyplot as plt
 import seaborn as sns
-from collections import Counter
 import joblib
 
 # ============================================================================
@@ -86,13 +84,13 @@ class CNNFeatureExtractor(nn.Module):
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.AdaptiveAvgPool2d((4, 4))  # Adaptive pooling to fixed size
+            nn.AvgPool2d(kernel_size=2, stride=1)  # (3,5) -> (2,4)
         )
 
         # Feature projection
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 4 * 4, feature_dim),
+            nn.Linear(128 * 2 * 4, feature_dim),
             nn.ReLU(),
             nn.Dropout(0.3)
         )
@@ -227,7 +225,7 @@ class VideoSequenceDataset(Dataset):
     Returns per-frame labels for behavior transition detection
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
-                 stride=10, img_size=(128, 128)):
+                 stride=10, img_size=(76, 142)):
         """
         Args:
             video_folder: Path to folder containing .mp4 files
@@ -235,7 +233,7 @@ class VideoSequenceDataset(Dataset):
             video_ids: List of video IDs (filenames without extension)
             sequence_length: Number of frames per sequence
             stride: Step size between sequences
-            img_size: (height, width) to resize frames
+            img_size: (width, height) - original video dimensions
         """
         self.video_folder = video_folder
         self.label_folder = label_folder
@@ -246,6 +244,7 @@ class VideoSequenceDataset(Dataset):
         # Store metadata about sequences (not the actual frames)
         self.sequence_info = []  # List of (video_id, start_frame)
         self.labels = []  # For compatibility (will store first frame label of each sequence)
+        self.label_cache = {}  # Cache video labels to avoid reloading CSV files
 
         print(f"Indexing sequences from {len(video_ids)} videos...")
         self._index_sequences(video_ids)
@@ -254,7 +253,7 @@ class VideoSequenceDataset(Dataset):
         """Create index of sequences without loading video frames"""
         for video_id in tqdm(video_ids, desc="Indexing videos"):
             video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
-            label_path = os.path.join(self.label_folder, f"{video_id}_labels.csv")
+            label_path = os.path.join(self.label_folder, f"{video_id}.csv")
 
             # Check if files exist
             if not os.path.exists(video_path):
@@ -270,6 +269,7 @@ class VideoSequenceDataset(Dataset):
                 behavior_columns = [col for col in labels_df.columns if col not in ['Unnamed: 0', 'frame']]
                 if len(behavior_columns) > 0:
                     video_labels = labels_df[behavior_columns].values.argmax(axis=1)
+                    self.label_cache[video_id] = video_labels  # Cache labels for this video
                 else:
                     print(f"Warning: Invalid label format for {video_id}")
                     continue
@@ -304,12 +304,9 @@ class VideoSequenceDataset(Dataset):
         video_id, start_frame = self.sequence_info[idx]
 
         video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
-        label_path = os.path.join(self.label_folder, f"{video_id}_labels.csv")
 
-        # Load labels for this video
-        labels_df = pd.read_csv(label_path)
-        behavior_columns = [col for col in labels_df.columns if col not in ['Unnamed: 0', 'frame']]
-        video_labels = labels_df[behavior_columns].values.argmax(axis=1)
+        # Use cached labels instead of reloading CSV
+        video_labels = self.label_cache[video_id]
 
         # Get labels for this sequence (all frames in the sequence)
         sequence_labels = video_labels[start_frame:start_frame + self.sequence_length]
@@ -323,11 +320,10 @@ class VideoSequenceDataset(Dataset):
             ret, frame = cap.read()
             if not ret:
                 # If we can't read a frame, use a black frame
-                frames.append(np.zeros(self.img_size, dtype=np.uint8))
+                frames.append(np.zeros(self.img_size[::-1], dtype=np.uint8))  # img_size is (W,H), array needs (H,W)
             else:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-                resized = cv2.resize(gray, self.img_size)
-                frames.append(resized)
+                frames.append(gray)  # Use original size, no resize
 
         cap.release()
 
@@ -465,26 +461,25 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v5_per_frame"
+    DATASET_VERSION = "CNN_Transformer_v6_per_frame(both_train_test)_edited_labels"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
-    SCALER_PATH = f"./output_cnn_transformer/scaler_{DATASET_VERSION}.pkl"
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
-    # Hyperparameters (optimized for speed + temporal context)
-    SEQUENCE_LENGTH = 30
+    # Hyperparameters
+    SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behaviour duration is 30
     STRIDE = 10
-    IMG_SIZE = (128, 128)
+    IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
     BATCH_SIZE = 32  # Increased from 16 for faster training
     NUM_EPOCHS = 100
     LEARNING_RATE = 0.0001
 
-    CNN_FEATURE_DIM = 512
-    D_MODEL = 512
+    CNN_FEATURE_DIM = 512 #tried half, worse
+    D_MODEL = 512 #tried half, worse
     NHEAD = 8
-    NUM_LAYERS = 4
-    DIM_FEEDFORWARD = 2048
+    NUM_LAYERS = 4 #tried 3, worse
+    DIM_FEEDFORWARD = 2048 #tried half, worse
     DROPOUT = 0.3
 
     # Device
@@ -524,7 +519,7 @@ if __name__ == "__main__":
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
-    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}_labels.csv")
+    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}.csv")
     sample_df = pd.read_csv(sample_label_path)
     behavior_names = [col for col in sample_df.columns if col not in ['Unnamed: 0', 'frame']]
 
@@ -681,13 +676,18 @@ if __name__ == "__main__":
 
             train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
-            # Evaluate
-            y_pred, y_true = evaluate(model, test_loader, device)
+            # Evaluate train set with consensus voting (for fair comparison with test)
+            y_pred_train_consensus, y_true_train_consensus = evaluate(model, train_eval_loader, device, use_consensus=True)
+            train_acc_consensus = 100 * np.sum(y_pred_train_consensus == y_true_train_consensus) / len(y_true_train_consensus)
+            train_f1_consensus = f1_score(y_true_train_consensus, y_pred_train_consensus, average='macro')
+
+            # Evaluate test set with consensus voting
+            y_pred, y_true = evaluate(model, test_loader, device, use_consensus=True)
             test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
             test_f1 = f1_score(y_true, y_pred, average='macro')
 
-            print(f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%")
-            print(f"Test Acc: {test_acc:.2f}%, Test F1: {test_f1:.4f}")
+            print(f"Train Loss: {train_loss:.4f}, Train Acc (per-pred): {train_acc:.2f}%, Train Acc (consensus): {train_acc_consensus:.2f}%, Train F1 (consensus): {train_f1_consensus:.4f}")
+            print(f"Test Acc (consensus): {test_acc:.2f}%, Test F1 (consensus): {test_f1:.4f}")
 
             # Save best model
             if test_f1 > best_f1:

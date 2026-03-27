@@ -1,5 +1,5 @@
 """
-CNN-Transformer Pipeline
+CNN-Transformer Pipeline c:
 
 Architecture:
 1. CNN Feature Extractor: Extracts spatial features from individual video frames

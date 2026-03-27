@@ -347,8 +347,6 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
     """Train for one epoch with per-frame predictions"""
     model.train()
     total_loss = 0
-    correct = 0
-    total = 0
 
     for batch_X, batch_y in tqdm(dataloader, desc="Training"):
         batch_X = batch_X.to(device)
@@ -374,11 +372,8 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
             scheduler.step()
 
         total_loss += loss.item()
-        _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
-        total += batch_y.numel()
-        correct += (predicted == batch_y).sum().item()
 
-    return total_loss / len(dataloader), 100 * correct / total
+    return total_loss / len(dataloader)
 
 
 def evaluate(model, dataloader, device, use_consensus=True):
@@ -461,7 +456,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v6_per_frame(both_train_test)_edited_labels"
+    DATASET_VERSION = "CNN_Transformer_v7"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -674,19 +669,14 @@ if __name__ == "__main__":
         for epoch in range(NUM_EPOCHS):
             print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
 
-            train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
-
-            # Evaluate train set with consensus voting (for fair comparison with test)
-            y_pred_train_consensus, y_true_train_consensus = evaluate(model, train_eval_loader, device, use_consensus=True)
-            train_acc_consensus = 100 * np.sum(y_pred_train_consensus == y_true_train_consensus) / len(y_true_train_consensus)
-            train_f1_consensus = f1_score(y_true_train_consensus, y_pred_train_consensus, average='macro')
+            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
             # Evaluate test set with consensus voting
             y_pred, y_true = evaluate(model, test_loader, device, use_consensus=True)
             test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
             test_f1 = f1_score(y_true, y_pred, average='macro')
 
-            print(f"Train Loss: {train_loss:.4f}, Train Acc (per-pred): {train_acc:.2f}%, Train Acc (consensus): {train_acc_consensus:.2f}%, Train F1 (consensus): {train_f1_consensus:.4f}")
+            print(f"Train Loss: {train_loss:.4f}")
             print(f"Test Acc (consensus): {test_acc:.2f}%, Test F1 (consensus): {test_f1:.4f}")
 
             # Save best model

@@ -254,7 +254,7 @@ class VideoSequenceDataset(Dataset):
         """Create index of sequences without loading video frames"""
         for video_id in tqdm(video_ids, desc="Indexing videos"):
             video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
-            label_path = os.path.join(self.label_folder, f"{video_id}.csv")
+            label_path = os.path.join(self.label_folder, f"{video_id}_labels.csv")
 
             # Check if files exist
             if not os.path.exists(video_path):
@@ -337,7 +337,7 @@ class VideoSequenceDataset(Dataset):
         frames = np.array(frames, dtype=np.float32)
 
         # Normalize to [0, 1]
-        frames = frames / 255.0
+        frames = frames  / 255.0
 
         # Add channel dimension: (seq_len, H, W) -> (seq_len, 1, H, W)
         frames = frames[:, np.newaxis, :, :]
@@ -529,7 +529,7 @@ if __name__ == "__main__":
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
-    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}.csv")
+    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}_labels.csv")
     sample_df = pd.read_csv(sample_label_path)
     behavior_names = [col for col in sample_df.columns if col not in ['Unnamed: 0', 'frame']]
 
@@ -758,7 +758,7 @@ if __name__ == "__main__":
         v_labels = np.array(per_video_data[video_id]['labels'])
         v_f1 = f1_score(v_labels, v_preds, average='macro', zero_division=0)
         print(f"\n--- {video_id} (macro F1: {v_f1:.3f}) ---")
-        print(classification_report(v_labels, v_preds, target_names=behavior_names, zero_division=0))
+        print(classification_report(v_labels, v_preds, target_names=behavior_names, labels=range(len(behavior_names)), zero_division=0))
 
     # Test confusion matrix
     cm = confusion_matrix(y_true, y_pred)

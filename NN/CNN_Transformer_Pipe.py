@@ -225,7 +225,7 @@ class VideoSequenceDataset(Dataset):
     Returns per-frame labels for behavior transition detection
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
-                 stride=10, img_size=(76, 142)):
+                 stride=10, img_size=(76, 142), background_undersample_ratio=1.0):
         """
         Args:
             video_folder: Path to folder containing .mp4 files
@@ -245,6 +245,7 @@ class VideoSequenceDataset(Dataset):
         self.sequence_info = []  # List of (video_id, start_frame)
         self.labels = []  # For compatibility (will store first frame label of each sequence)
         self.label_cache = {}  # Cache video labels to avoid reloading CSV files
+        self.background_undersample_ratio = background_undersample_ratio
 
         print(f"Indexing sequences from {len(video_ids)} videos...")
         self._index_sequences(video_ids)
@@ -288,9 +289,14 @@ class VideoSequenceDataset(Dataset):
 
             # Index sequences (don't load frames yet)
             for start_idx in range(0, min(total_frames, len(video_labels)) - self.sequence_length + 1, self.stride):
-                # Store first frame label for compatibility with class weight calculation
-                first_frame_label = video_labels[start_idx]
+                seq_labels = video_labels[start_idx:start_idx + self.sequence_length]
+                bg_ratio = np.mean(seq_labels == 0)  # background is class 0
 
+                # Undersample background-dominated sequences
+                if bg_ratio > 0.8 and np.random.random() > self.background_undersample_ratio:
+                    continue
+
+                first_frame_label = video_labels[start_idx]
                 self.sequence_info.append((video_id, start_idx))
                 self.labels.append(first_frame_label)
 
@@ -376,7 +382,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
     return total_loss / len(dataloader)
 
 
-def evaluate(model, dataloader, device, use_consensus=True):
+def evaluate(model, dataloader, device, use_consensus=True, return_per_video=False):
     """
     Evaluate model with per-frame predictions
 
@@ -436,15 +442,22 @@ def evaluate(model, dataloader, device, use_consensus=True):
     # Apply majority voting
     consensus_preds = []
     consensus_labels = []
+    per_video_data = defaultdict(lambda: {'preds': [], 'labels': []})
 
     for key in sorted(frame_predictions.keys()):
-        # Majority vote (mode)
+        video_id, frame_idx = key
         preds = frame_predictions[key]
         consensus_pred = stats.mode(preds, keepdims=False)[0]
 
         consensus_preds.append(consensus_pred)
         consensus_labels.append(frame_labels[key])
 
+        if return_per_video:
+            per_video_data[video_id]['preds'].append(consensus_pred)
+            per_video_data[video_id]['labels'].append(frame_labels[key])
+
+    if return_per_video:
+        return np.array(consensus_preds), np.array(consensus_labels), dict(per_video_data)
     return np.array(consensus_preds), np.array(consensus_labels)
 
 
@@ -456,7 +469,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v9_regularization"
+    DATASET_VERSION = "CNN_Transformer_v10_undersampling"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -465,6 +478,7 @@ if __name__ == "__main__":
     # Hyperparameters
     SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behaviour duration is 30
     STRIDE = 10
+    BACKGROUND_UNDERSAMPLE_RATIO = 0.3  # keep 30% of sequences where >80% frames are background
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
     BATCH_SIZE = 32  # Increased from 16 for faster training
     NUM_EPOCHS = 100
@@ -502,7 +516,8 @@ if __name__ == "__main__":
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
     train_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-        SEQUENCE_LENGTH, STRIDE, IMG_SIZE
+        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
+        background_undersample_ratio=BACKGROUND_UNDERSAMPLE_RATIO
     )
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
@@ -731,9 +746,19 @@ if __name__ == "__main__":
     print("FINAL TEST SET EVALUATION")
     print("="*60)
 
-    y_pred, y_true = evaluate(model, test_loader, device)
+    y_pred, y_true, per_video_data = evaluate(model, test_loader, device, return_per_video=True)
     print("\nClassification Report:")
     print(classification_report(y_true, y_pred, target_names=behavior_names))
+
+    print("\n" + "="*60)
+    print("PER-VIDEO TEST EVALUATION")
+    print("="*60)
+    for video_id in sorted(per_video_data.keys()):
+        v_preds = np.array(per_video_data[video_id]['preds'])
+        v_labels = np.array(per_video_data[video_id]['labels'])
+        v_f1 = f1_score(v_labels, v_preds, average='macro', zero_division=0)
+        print(f"\n--- {video_id} (macro F1: {v_f1:.3f}) ---")
+        print(classification_report(v_labels, v_preds, target_names=behavior_names, zero_division=0))
 
     # Test confusion matrix
     cm = confusion_matrix(y_true, y_pred)

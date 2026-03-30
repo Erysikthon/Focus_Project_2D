@@ -456,7 +456,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v7"
+    DATASET_VERSION = "CNN_Transformer_v9_regularization"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -475,7 +475,7 @@ if __name__ == "__main__":
     NHEAD = 8
     NUM_LAYERS = 4 #tried 3, worse
     DIM_FEEDFORWARD = 2048 #tried half, worse
-    DROPOUT = 0.3
+    DROPOUT = 0.3  # tried 0.5 (v8) and 0.4 (v9) — both worse on test
 
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else
@@ -657,7 +657,7 @@ if __name__ == "__main__":
     if not SKIP_TRAINING:
         # Loss and optimizer
         criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.1)
-        optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)
+        optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.01)  # tried 0.05 — no improvement
 
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)

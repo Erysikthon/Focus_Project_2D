@@ -254,7 +254,7 @@ class VideoSequenceDataset(Dataset):
         """Create index of sequences without loading video frames"""
         for video_id in tqdm(video_ids, desc="Indexing videos"):
             video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
-            label_path = os.path.join(self.label_folder, f"{video_id}_labels.csv")
+            label_path = os.path.join(self.label_folder, f"{video_id}.csv")
 
             # Check if files exist
             if not os.path.exists(video_path):
@@ -461,6 +461,13 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
     return np.array(consensus_preds), np.array(consensus_labels)
 
 
+def count_behavior_instances(predictions, behavior_label):
+    """Count behavior instances by detecting transitions to the behavior (0->1 transitions in binary mask)."""
+    behavior_mask = (predictions == behavior_label).astype(int)
+    changes = np.diff(behavior_mask, prepend=0)
+    return int((changes > 0.5).sum())
+
+
 # ============================================================================
 # Main Training Script
 # ============================================================================
@@ -529,7 +536,7 @@ if __name__ == "__main__":
     print(f"Test dataset created: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
-    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}_labels.csv")
+    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}.csv")
     sample_df = pd.read_csv(sample_label_path)
     behavior_names = [col for col in sample_df.columns if col not in ['Unnamed: 0', 'frame']]
 
@@ -759,6 +766,111 @@ if __name__ == "__main__":
         v_f1 = f1_score(v_labels, v_preds, average='macro', zero_division=0)
         print(f"\n--- {video_id} (macro F1: {v_f1:.3f}) ---")
         print(classification_report(v_labels, v_preds, target_names=behavior_names, labels=range(len(behavior_names)), zero_division=0))
+
+    # ============================================================================
+    # BEHAVIOUR INSTANCE COUNTS
+    # ============================================================================
+
+    print("\n" + "="*60)
+    print("BEHAVIOUR INSTANCE COUNTS - TRAIN SET")
+    print("="*60)
+    print(f"{'Behavior':<25} {'True Count':<15} {'Predicted Count':<15}")
+    print("="*55)
+    for cls_idx, cls_name in enumerate(behavior_names):
+        true_count = count_behavior_instances(y_true_train, cls_idx)
+        pred_count = count_behavior_instances(y_pred_train, cls_idx)
+        print(f"{cls_name:<25} {true_count:<15} {pred_count:<15}")
+
+    print("\n" + "="*60)
+    print("BEHAVIOUR INSTANCE COUNTS - TEST SET")
+    print("="*60)
+    print(f"{'Behavior':<25} {'True Count':<15} {'Predicted Count':<15}")
+    print("="*55)
+    true_counts = {}
+    pred_counts = {}
+    for cls_idx, cls_name in enumerate(behavior_names):
+        true_count = count_behavior_instances(y_true, cls_idx)
+        pred_count = count_behavior_instances(y_pred, cls_idx)
+        true_counts[cls_name] = true_count
+        pred_counts[cls_name] = pred_count
+        print(f"{cls_name:<25} {true_count:<15} {pred_count:<15}")
+
+    # Bar chart for non-background behaviors
+    plot_behavior_indices = list(range(1, num_classes))  # skip background (index 0)
+    plot_behavior_names = [behavior_names[i] for i in plot_behavior_indices]
+
+    if plot_behavior_names:
+        fig, axes = plt.subplots(1, len(plot_behavior_names), figsize=(5 * len(plot_behavior_names), 5))
+        if len(plot_behavior_names) == 1:
+            axes = [axes]
+
+        colors_true = '#59a89c'
+        colors_pred = '#a559aa'
+
+        for idx, cls_name in enumerate(plot_behavior_names):
+            true_val = true_counts[cls_name]
+            pred_val = pred_counts[cls_name]
+            x_pos = np.array([0, 1])
+            values = [true_val, pred_val]
+            bars = axes[idx].bar(x_pos, values, color=[colors_true, colors_pred], width=0.6)
+
+            for bar in bars:
+                height = bar.get_height()
+                axes[idx].text(bar.get_x() + bar.get_width() / 2., height,
+                               f'{int(height)}', ha='center', va='bottom', fontsize=13, fontweight='bold')
+
+            axes[idx].set_title(f'{cls_name}', fontsize=15, fontweight='bold', pad=10)
+            axes[idx].set_ylabel('Instance Count', fontsize=14, labelpad=10)
+            axes[idx].set_xticks(x_pos)
+            axes[idx].set_xticklabels(['True', 'Predicted'], fontsize=14)
+            axes[idx].tick_params(axis='y', labelsize=14)
+            axes[idx].grid(True, axis='y', linestyle='--', alpha=0.7)
+            axes[idx].set_ylim([0, max(values) * 1.15 if max(values) > 0 else 1])
+
+        fig.suptitle(f'Behaviour Instance Counts (True vs Predicted) - {DATASET_VERSION}',
+                     fontsize=16, fontweight='bold', y=1.02)
+        plt.tight_layout()
+        plt.savefig(f'./output_cnn_transformer/behaviour_instance_count_{DATASET_VERSION}.png',
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+        print("\nBehaviour instance count plot saved!")
+
+    # Per-video scatterplot
+    if per_video_data and plot_behavior_names:
+        video_counts = {cls_name: {'actual': [], 'predicted': []} for cls_name in plot_behavior_names}
+
+        for video_id in sorted(per_video_data.keys()):
+            v_preds = np.array(per_video_data[video_id]['preds'])
+            v_labels = np.array(per_video_data[video_id]['labels'])
+            for cls_idx, cls_name in zip(plot_behavior_indices, plot_behavior_names):
+                video_counts[cls_name]['actual'].append(count_behavior_instances(v_labels, cls_idx))
+                video_counts[cls_name]['predicted'].append(count_behavior_instances(v_preds, cls_idx))
+
+        fig, axes = plt.subplots(1, len(plot_behavior_names), figsize=(5 * len(plot_behavior_names), 5))
+        if len(plot_behavior_names) == 1:
+            axes = [axes]
+
+        for idx, cls_name in enumerate(plot_behavior_names):
+            actual = np.array(video_counts[cls_name]['actual'])
+            predicted = np.array(video_counts[cls_name]['predicted'])
+
+            axes[idx].scatter(actual, predicted, alpha=0.6, s=100)
+            max_val = max(actual.max(), predicted.max()) if (actual.max() > 0 or predicted.max() > 0) else 1
+            axes[idx].plot([0, max_val], [0, max_val], 'k--', alpha=0.3, label='Perfect Agreement')
+            axes[idx].set_xlabel('Actual Instance Count', fontsize=14)
+            axes[idx].set_ylabel('Predicted Instance Count', fontsize=14)
+            axes[idx].set_title(f'{cls_name}', fontsize=17, fontweight='bold', pad=10)
+            axes[idx].legend(fontsize=10.5)
+            axes[idx].grid(True, alpha=0.3)
+            axes[idx].set_aspect('equal', adjustable='box')
+
+        fig.suptitle(f'Actual vs Predicted Instance Counts Per Video - {DATASET_VERSION}',
+                     fontsize=20, fontweight='bold', y=1)
+        plt.tight_layout()
+        plt.savefig(f'./output_cnn_transformer/instance_count_per_video_{DATASET_VERSION}.png',
+                    dpi=300, bbox_inches='tight')
+        plt.close()
+        print("\nInstance count per video scatterplot saved!")
 
     # Test confusion matrix
     cm = confusion_matrix(y_true, y_pred)

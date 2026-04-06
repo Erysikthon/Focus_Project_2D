@@ -350,29 +350,26 @@ class VideoSequenceDataset(Dataset):
 # Training and Evaluation Functions
 # ============================================================================
 
-def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None, scaler=None):
+def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
     """Train for one epoch with per-frame predictions"""
     model.train()
     total_loss = 0
 
     for batch_X, batch_y in tqdm(dataloader, desc="Training"):
-        batch_X = batch_X.to(device, non_blocking=True)
-        batch_y = batch_y.to(device, non_blocking=True)
+        batch_X = batch_X.to(device)
+        batch_y = batch_y.to(device)
 
         optimizer.zero_grad()
+        outputs = model(batch_X)  # (batch, seq_len, num_classes)
 
-        with torch.amp.autocast(device_type='cuda'):
-            outputs = model(batch_X)  # (batch, seq_len, num_classes)
-            batch_size, seq_len, num_classes = outputs.shape
-            outputs_flat = outputs.view(batch_size * seq_len, num_classes)
-            labels_flat = batch_y.view(batch_size * seq_len)
-            loss = criterion(outputs_flat, labels_flat)
+        batch_size, seq_len, num_classes = outputs.shape
+        outputs_flat = outputs.view(batch_size * seq_len, num_classes)
+        labels_flat = batch_y.view(batch_size * seq_len)
+        loss = criterion(outputs_flat, labels_flat)
 
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        scaler.step(optimizer)
-        scaler.update()
+        optimizer.step()
 
         if scheduler is not None:
             scheduler.step()
@@ -396,9 +393,9 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
         # Original behavior: treat all predictions independently
         all_preds = []
         all_labels = []
-        with torch.no_grad(), torch.amp.autocast(device_type='cuda'):
+        with torch.no_grad():
             for batch_X, batch_y in tqdm(dataloader, desc="Evaluating"):
-                batch_X = batch_X.to(device, non_blocking=True)
+                batch_X = batch_X.to(device)
                 outputs = model(batch_X)  # (batch, seq_len, num_classes)
                 _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
                 all_preds.extend(predicted.cpu().numpy().flatten())
@@ -412,9 +409,9 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
     frame_predictions = defaultdict(list)  # {(video_id, frame_idx): [pred1, pred2, ...]}
     frame_labels = {}  # {(video_id, frame_idx): true_label}
 
-    with torch.no_grad(), torch.amp.autocast(device_type='cuda'):
+    with torch.no_grad():
         for batch_idx, (batch_X, batch_y) in enumerate(tqdm(dataloader, desc="Evaluating")):
-            batch_X = batch_X.to(device, non_blocking=True)
+            batch_X = batch_X.to(device)
             outputs = model(batch_X)  # (batch, seq_len, num_classes)
             _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
 
@@ -514,7 +511,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v13_multigpu"
+    DATASET_VERSION = "CNN_Transformer_v13_multigpu_revert"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -527,7 +524,7 @@ if __name__ == "__main__":
     FINAL_EVAL_STRIDE = 5   # stride for final evaluation (denser, ~6 votes/frame via consensus)
     BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
-    BATCH_SIZE = 256  # 32 per GPU * 8 GPUs
+    BATCH_SIZE = 32
     NUM_EPOCHS = 100
     LEARNING_RATE = 0.0001
 
@@ -681,11 +678,6 @@ if __name__ == "__main__":
             dropout=DROPOUT
         ).to(device)
 
-        # Use all available GPUs
-        if torch.cuda.device_count() > 1:
-            print(f"Using {torch.cuda.device_count()} GPUs")
-            model = nn.DataParallel(model)
-
         print(f"\nModel architecture:\n{model}")
         print(f"Total parameters: {sum(p.numel() for p in model.parameters()):,}")
 
@@ -744,8 +736,6 @@ if __name__ == "__main__":
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
-        # Mixed precision scaler
-        scaler = torch.amp.GradScaler('cuda')
 
         best_f1 = 0.0
         patience = 15
@@ -754,7 +744,7 @@ if __name__ == "__main__":
         for epoch in range(NUM_EPOCHS):
             print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
 
-            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler, scaler)
+            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
             # Evaluate test set with consensus voting (fast stride for per-epoch speed)
             y_pred, y_true = evaluate(model, epoch_test_loader, device, use_consensus=True)
@@ -767,9 +757,8 @@ if __name__ == "__main__":
             # Save best model
             if test_f1 > best_f1:
                 best_f1 = test_f1
-                save_model = model.module if isinstance(model, nn.DataParallel) else model
                 torch.save({
-                    'model_state_dict': save_model.state_dict(),
+                    'model_state_dict': model.state_dict(),
                     'cnn_feature_dim': CNN_FEATURE_DIM,
                     'd_model': D_MODEL,
                     'nhead': NHEAD,

@@ -336,8 +336,8 @@ class VideoSequenceDataset(Dataset):
         # Convert to numpy array
         frames = np.array(frames, dtype=np.float32)
 
-        # Normalize to [0, 1]
-        frames = frames  / 255.0
+        # Normalize to [-0.5, 0.5] (inverted, matching VideoDataSet/TCNN convention)
+        frames = -(frames / 255.0 - 0.5)
 
         # Add channel dimension: (seq_len, H, W) -> (seq_len, 1, H, W)
         frames = frames[:, np.newaxis, :, :]
@@ -514,7 +514,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v11_undersampling"
+    DATASET_VERSION = "CNN_Transformer_v11"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

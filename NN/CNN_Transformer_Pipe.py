@@ -522,7 +522,7 @@ if __name__ == "__main__":
 
     # Hyperparameters
     SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behaviour duration is 30
-    STRIDE = 1, #tried 10 (-v10)
+    STRIDE = 1  #tried 10 (-v10)
     BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
     BATCH_SIZE = 32  # Increased from 16 for faster training

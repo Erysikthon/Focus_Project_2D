@@ -350,7 +350,7 @@ class VideoSequenceDataset(Dataset):
 # Training and Evaluation Functions
 # ============================================================================
 
-def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
+def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None, scaler=None):
     """Train for one epoch with per-frame predictions"""
     model.train()
     total_loss = 0
@@ -360,16 +360,19 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
         batch_y = batch_y.to(device)
 
         optimizer.zero_grad()
-        outputs = model(batch_X)  # (batch, seq_len, num_classes)
 
-        batch_size, seq_len, num_classes = outputs.shape
-        outputs_flat = outputs.view(batch_size * seq_len, num_classes)
-        labels_flat = batch_y.view(batch_size * seq_len)
-        loss = criterion(outputs_flat, labels_flat)
+        with torch.amp.autocast(device_type='cuda'):
+            outputs = model(batch_X)  # (batch, seq_len, num_classes)
+            batch_size, seq_len, num_classes = outputs.shape
+            outputs_flat = outputs.view(batch_size * seq_len, num_classes)
+            labels_flat = batch_y.view(batch_size * seq_len)
+            loss = criterion(outputs_flat, labels_flat)
 
-        loss.backward()
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        optimizer.step()
+        scaler.step(optimizer)
+        scaler.update()
 
         if scheduler is not None:
             scheduler.step()
@@ -736,6 +739,7 @@ if __name__ == "__main__":
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
+        scaler = torch.amp.GradScaler('cuda')
 
         best_f1 = 0.0
         patience = 15
@@ -744,7 +748,7 @@ if __name__ == "__main__":
         for epoch in range(NUM_EPOCHS):
             print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
 
-            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
+            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler, scaler)
 
             # Evaluate test set with consensus voting (fast stride for per-epoch speed)
             y_pred, y_true = evaluate(model, epoch_test_loader, device, use_consensus=True)

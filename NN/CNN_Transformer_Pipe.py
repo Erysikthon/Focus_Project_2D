@@ -300,8 +300,7 @@ class VideoSequenceDataset(Dataset):
                 self.sequence_info.append((video_id, start_idx))
                 self.labels.append(first_frame_label)
 
-        videos_indexed = len(set(v for v, _ in self.sequence_info))
-        print(f"Indexed {len(self.sequence_info)} sequences from {videos_indexed}/{len(video_ids)} videos (per-frame labels)")
+        print(f"Indexed {len(self.sequence_info)} sequences (per-frame labels)")
 
     def __len__(self):
         return len(self.sequence_info)
@@ -350,29 +349,30 @@ class VideoSequenceDataset(Dataset):
 # Training and Evaluation Functions
 # ============================================================================
 
-def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None, scaler=None):
+def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None):
     """Train for one epoch with per-frame predictions"""
     model.train()
     total_loss = 0
 
     for batch_X, batch_y in tqdm(dataloader, desc="Training"):
         batch_X = batch_X.to(device)
-        batch_y = batch_y.to(device)
+        batch_y = batch_y.to(device)  # (batch, seq_len)
 
         optimizer.zero_grad()
+        outputs = model(batch_X)  # (batch, seq_len, num_classes)
 
-        with torch.amp.autocast(device_type='cuda'):
-            outputs = model(batch_X)  # (batch, seq_len, num_classes)
-            batch_size, seq_len, num_classes = outputs.shape
-            outputs_flat = outputs.view(batch_size * seq_len, num_classes)
-            labels_flat = batch_y.view(batch_size * seq_len)
-            loss = criterion(outputs_flat, labels_flat)
+        # Reshape for loss computation
+        batch_size, seq_len, num_classes = outputs.shape
+        outputs_flat = outputs.view(batch_size * seq_len, num_classes)
+        labels_flat = batch_y.view(batch_size * seq_len)
 
-        scaler.scale(loss).backward()
-        scaler.unscale_(optimizer)
+        loss = criterion(outputs_flat, labels_flat)
+        loss.backward()
+
+        # Gradient clipping
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-        scaler.step(optimizer)
-        scaler.update()
+
+        optimizer.step()
 
         if scheduler is not None:
             scheduler.step()
@@ -514,7 +514,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v13_multigpu_revert"
+    DATASET_VERSION = "CNN_Transformer_v12_eval_stride"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -527,7 +527,7 @@ if __name__ == "__main__":
     FINAL_EVAL_STRIDE = 5   # stride for final evaluation (denser, ~6 votes/frame via consensus)
     BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
-    BATCH_SIZE = 64
+    BATCH_SIZE = 32  # Increased from 16 for faster training
     NUM_EPOCHS = 100
     LEARNING_RATE = 0.0001
 
@@ -667,8 +667,9 @@ if __name__ == "__main__":
         print(f"\nNo existing model found at: {MODEL_PATH}")
         print(f"Training new model...\n")
 
+        # Create dataloaders (num_workers=4 for parallel data loading)
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                                  num_workers=4, pin_memory=True)
+                                  num_workers=4, pin_memory=True, persistent_workers=True)
 
         # Initialize model
         model = CNNTransformerClassifier(
@@ -739,8 +740,6 @@ if __name__ == "__main__":
         # Learning rate scheduler
         scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=NUM_EPOCHS)
 
-        scaler = torch.amp.GradScaler('cuda')
-
         best_f1 = 0.0
         patience = 15
         patience_counter = 0
@@ -748,7 +747,7 @@ if __name__ == "__main__":
         for epoch in range(NUM_EPOCHS):
             print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
 
-            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler, scaler)
+            train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
             # Evaluate test set with consensus voting (fast stride for per-epoch speed)
             y_pred, y_true = evaluate(model, epoch_test_loader, device, use_consensus=True)

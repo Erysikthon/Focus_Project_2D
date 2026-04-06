@@ -527,7 +527,7 @@ if __name__ == "__main__":
     FINAL_EVAL_STRIDE = 5   # stride for final evaluation (denser, ~6 votes/frame via consensus)
     BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
-    BATCH_SIZE = 256  # 32 per GPU * 8 GPUs
+    BATCH_SIZE = 64
     NUM_EPOCHS = 100
     LEARNING_RATE = 0.0001
 

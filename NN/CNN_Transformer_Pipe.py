@@ -514,7 +514,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v11"
+    DATASET_VERSION = "CNN_Transformer_v12_eval_stride"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -522,7 +522,9 @@ if __name__ == "__main__":
 
     # Hyperparameters
     SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behaviour duration is 30
-    STRIDE = 1  #tried 10 (-v10)
+    TRAIN_STRIDE = 10       # stride for training dataset
+    EPOCH_EVAL_STRIDE = 10  # stride for per-epoch evaluation during training (fast)
+    FINAL_EVAL_STRIDE = 5   # stride for final evaluation (denser, ~6 votes/frame via consensus)
     BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
     BATCH_SIZE = 32  # Increased from 16 for faster training
@@ -561,17 +563,29 @@ if __name__ == "__main__":
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
     train_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-        SEQUENCE_LENGTH, STRIDE, IMG_SIZE,
+        SEQUENCE_LENGTH, TRAIN_STRIDE, IMG_SIZE,
         background_undersample_ratio=BACKGROUND_UNDERSAMPLE_RATIO
     )
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
-    print(f"\nCreating test dataset from {len(test_video_ids)} videos...")
+    print(f"\nCreating epoch eval dataset (stride={EPOCH_EVAL_STRIDE})...")
+    epoch_test_dataset = VideoSequenceDataset(
+        VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
+        SEQUENCE_LENGTH, EPOCH_EVAL_STRIDE, IMG_SIZE
+    )
+    print(f"Epoch eval dataset: {len(epoch_test_dataset)} sequences")
+
+    print(f"\nCreating final eval datasets (stride={FINAL_EVAL_STRIDE})...")
+    train_eval_dataset = VideoSequenceDataset(
+        VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
+        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE
+    )
     test_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-        SEQUENCE_LENGTH, STRIDE, IMG_SIZE
+        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE
     )
-    print(f"Test dataset created: {len(test_dataset)} sequences")
+    print(f"Train eval dataset: {len(train_eval_dataset)} sequences")
+    print(f"Test dataset: {len(test_dataset)} sequences")
 
     # Get behavior class names from first label file
     sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}.csv")
@@ -673,12 +687,16 @@ if __name__ == "__main__":
 
         SKIP_TRAINING = False
 
-    # Create test dataloader (always needed for evaluation)
+    # Create epoch eval dataloader (fast, used during training loop)
+    epoch_test_loader = DataLoader(epoch_test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                   num_workers=2, pin_memory=True)
+
+    # Create final test dataloader (denser stride, used for final evaluation)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
                              num_workers=2, pin_memory=True)
 
     # Create train evaluation dataloader (for final evaluation only, not training)
-    train_eval_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False,
+    train_eval_loader = DataLoader(train_eval_dataset, batch_size=BATCH_SIZE, shuffle=False,
                                    num_workers=2, pin_memory=True)
 
     # Class weights for imbalanced data (needed for training or info)
@@ -731,8 +749,8 @@ if __name__ == "__main__":
 
             train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
-            # Evaluate test set with consensus voting
-            y_pred, y_true = evaluate(model, test_loader, device, use_consensus=True)
+            # Evaluate test set with consensus voting (fast stride for per-epoch speed)
+            y_pred, y_true = evaluate(model, epoch_test_loader, device, use_consensus=True)
             test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
             test_f1 = f1_score(y_true, y_pred, average='macro')
 

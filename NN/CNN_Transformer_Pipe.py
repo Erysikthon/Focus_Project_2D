@@ -452,13 +452,51 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
         consensus_preds.append(consensus_pred)
         consensus_labels.append(frame_labels[key])
 
-        if return_per_video:
-            per_video_data[video_id]['preds'].append(consensus_pred)
-            per_video_data[video_id]['labels'].append(frame_labels[key])
+        per_video_data[video_id]['preds'].append(consensus_pred)
+        per_video_data[video_id]['labels'].append(frame_labels[key])
+
+    # Apply minimum duration filter per video (so runs don't bleed across video boundaries)
+    for video_id in per_video_data:
+        filtered = apply_min_duration_filter(per_video_data[video_id]['preds'])
+        per_video_data[video_id]['preds'] = filtered.tolist()
+
+    # Reconstruct flat arrays in sorted key order from filtered per-video data
+    video_frame_counters = defaultdict(int)
+    consensus_preds = []
+    for key in sorted(frame_predictions.keys()):
+        video_id, _ = key
+        i = video_frame_counters[video_id]
+        consensus_preds.append(per_video_data[video_id]['preds'][i])
+        video_frame_counters[video_id] += 1
 
     if return_per_video:
         return np.array(consensus_preds), np.array(consensus_labels), dict(per_video_data)
     return np.array(consensus_preds), np.array(consensus_labels)
+
+
+def apply_min_duration_filter(preds, min_duration=5, background_class=0):
+    """
+    Remove short predicted runs of non-background classes.
+    Any contiguous run shorter than min_duration frames is replaced by
+    the preceding class (or background if at the start).
+    """
+    preds = np.array(preds, dtype=int)
+    i = 0
+    while i < len(preds):
+        cls = preds[i]
+        if cls == background_class:
+            i += 1
+            continue
+        # Find end of this run
+        j = i
+        while j < len(preds) and preds[j] == cls:
+            j += 1
+        run_length = j - i
+        if run_length < min_duration:
+            replacement = preds[i - 1] if i > 0 else background_class
+            preds[i:j] = replacement
+        i = j
+    return preds
 
 
 def count_behavior_instances(predictions, behavior_label):
@@ -476,7 +514,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v10_undersampling"
+    DATASET_VERSION = "CNN_Transformer_v11_undersampling"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -484,8 +522,8 @@ if __name__ == "__main__":
 
     # Hyperparameters
     SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behaviour duration is 30
-    STRIDE = 10
-    BACKGROUND_UNDERSAMPLE_RATIO = 0.3  # keep 30% of sequences where >80% frames are background
+    STRIDE = 1, #tried 10 (-v10)
+    BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
     BATCH_SIZE = 32  # Increased from 16 for faster training
     NUM_EPOCHS = 100
@@ -729,13 +767,19 @@ if __name__ == "__main__":
         model.load_state_dict(checkpoint['model_state_dict'])
 
     # Final evaluation
-    print("\n" + "="*60)
-    print("FINAL TRAINING SET EVALUATION")
-    print("="*60)
+    results_lines = []
+
+    def log(line=""):
+        print(line)
+        results_lines.append(line)
+
+    log("\n" + "="*60)
+    log("FINAL TRAINING SET EVALUATION")
+    log("="*60)
 
     y_pred_train, y_true_train = evaluate(model, train_eval_loader, device)
-    print("\nClassification Report:")
-    print(classification_report(y_true_train, y_pred_train, target_names=behavior_names))
+    log("\nClassification Report:")
+    log(classification_report(y_true_train, y_pred_train, target_names=behavior_names))
 
     # Training confusion matrix
     cm_train = confusion_matrix(y_true_train, y_pred_train)
@@ -749,43 +793,43 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig(f'./output_cnn_transformer/conf_matrix_train_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
 
-    print("\n" + "="*60)
-    print("FINAL TEST SET EVALUATION")
-    print("="*60)
+    log("\n" + "="*60)
+    log("FINAL TEST SET EVALUATION")
+    log("="*60)
 
     y_pred, y_true, per_video_data = evaluate(model, test_loader, device, return_per_video=True)
-    print("\nClassification Report:")
-    print(classification_report(y_true, y_pred, target_names=behavior_names))
+    log("\nClassification Report:")
+    log(classification_report(y_true, y_pred, target_names=behavior_names))
 
-    print("\n" + "="*60)
-    print("PER-VIDEO TEST EVALUATION")
-    print("="*60)
+    log("\n" + "="*60)
+    log("PER-VIDEO TEST EVALUATION")
+    log("="*60)
     for video_id in sorted(per_video_data.keys()):
         v_preds = np.array(per_video_data[video_id]['preds'])
         v_labels = np.array(per_video_data[video_id]['labels'])
         v_f1 = f1_score(v_labels, v_preds, average='macro', zero_division=0)
-        print(f"\n--- {video_id} (macro F1: {v_f1:.3f}) ---")
-        print(classification_report(v_labels, v_preds, target_names=behavior_names, labels=range(len(behavior_names)), zero_division=0))
+        log(f"\n--- {video_id} (macro F1: {v_f1:.3f}) ---")
+        log(classification_report(v_labels, v_preds, target_names=behavior_names, labels=range(len(behavior_names)), zero_division=0))
 
     # ============================================================================
     # BEHAVIOUR INSTANCE COUNTS
     # ============================================================================
 
-    print("\n" + "="*60)
-    print("BEHAVIOUR INSTANCE COUNTS - TRAIN SET")
-    print("="*60)
-    print(f"{'Behavior':<25} {'True Count':<15} {'Predicted Count':<15}")
-    print("="*55)
+    log("\n" + "="*60)
+    log("BEHAVIOUR INSTANCE COUNTS - TRAIN SET")
+    log("="*60)
+    log(f"{'Behavior':<25} {'True Count':<15} {'Predicted Count':<15}")
+    log("="*55)
     for cls_idx, cls_name in enumerate(behavior_names):
         true_count = count_behavior_instances(y_true_train, cls_idx)
         pred_count = count_behavior_instances(y_pred_train, cls_idx)
-        print(f"{cls_name:<25} {true_count:<15} {pred_count:<15}")
+        log(f"{cls_name:<25} {true_count:<15} {pred_count:<15}")
 
-    print("\n" + "="*60)
-    print("BEHAVIOUR INSTANCE COUNTS - TEST SET")
-    print("="*60)
-    print(f"{'Behavior':<25} {'True Count':<15} {'Predicted Count':<15}")
-    print("="*55)
+    log("\n" + "="*60)
+    log("BEHAVIOUR INSTANCE COUNTS - TEST SET")
+    log("="*60)
+    log(f"{'Behavior':<25} {'True Count':<15} {'Predicted Count':<15}")
+    log("="*55)
     true_counts = {}
     pred_counts = {}
     for cls_idx, cls_name in enumerate(behavior_names):
@@ -793,7 +837,7 @@ if __name__ == "__main__":
         pred_count = count_behavior_instances(y_pred, cls_idx)
         true_counts[cls_name] = true_count
         pred_counts[cls_name] = pred_count
-        print(f"{cls_name:<25} {true_count:<15} {pred_count:<15}")
+        log(f"{cls_name:<25} {true_count:<15} {pred_count:<15}")
 
     # Bar chart for non-background behaviors
     plot_behavior_indices = list(range(1, num_classes))  # skip background (index 0)
@@ -883,5 +927,10 @@ if __name__ == "__main__":
     plt.xlabel('Predicted Label')
     plt.tight_layout()
     plt.savefig(f'./output_cnn_transformer/conf_matrix_test_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
+
+    results_path = f'./output_cnn_transformer/evaluation_{DATASET_VERSION}.txt'
+    with open(results_path, 'w') as f:
+        f.write("\n".join(results_lines))
+    print(f"\nEvaluation results saved to {results_path}")
 
     print(f"\nTotal time: {time.time() - start_time:.2f} seconds")

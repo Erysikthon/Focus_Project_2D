@@ -667,10 +667,8 @@ if __name__ == "__main__":
         print(f"\nNo existing model found at: {MODEL_PATH}")
         print(f"Training new model...\n")
 
-        # spawn avoids cv2.VideoCapture deadlocks that occur with default fork
         train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True,
-                                  num_workers=4, pin_memory=True,
-                                  multiprocessing_context='spawn')
+                                  num_workers=4, pin_memory=True)
 
         # Initialize model
         model = CNNTransformerClassifier(
@@ -695,18 +693,15 @@ if __name__ == "__main__":
 
     # Create epoch eval dataloader (fast, used during training loop)
     epoch_test_loader = DataLoader(epoch_test_dataset, batch_size=BATCH_SIZE, shuffle=False,
-                                   num_workers=2, pin_memory=True,
-                                   multiprocessing_context='spawn')
+                                   num_workers=2, pin_memory=True)
 
     # Create final test dataloader (denser stride, used for final evaluation)
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
-                             num_workers=2, pin_memory=True,
-                             multiprocessing_context='spawn')
+                             num_workers=2, pin_memory=True)
 
     # Create train evaluation dataloader (for final evaluation only, not training)
     train_eval_loader = DataLoader(train_eval_dataset, batch_size=BATCH_SIZE, shuffle=False,
-                                   num_workers=2, pin_memory=True,
-                                   multiprocessing_context='spawn')
+                                   num_workers=2, pin_memory=True)
 
     # Class weights for imbalanced data (needed for training or info)
     unique, counts = np.unique(train_dataset.labels, return_counts=True)

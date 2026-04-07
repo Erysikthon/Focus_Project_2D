@@ -455,9 +455,10 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
         per_video_data[video_id]['preds'].append(consensus_pred)
         per_video_data[video_id]['labels'].append(frame_labels[key])
 
-    # Apply minimum duration filter per video (so runs don't bleed across video boundaries)
+    # Apply minimum duration filter then gap-filling per video
     for video_id in per_video_data:
         filtered = apply_min_duration_filter(per_video_data[video_id]['preds'])
+        filtered = apply_gap_fill(filtered)
         per_video_data[video_id]['preds'] = filtered.tolist()
 
     # Reconstruct flat arrays in sorted key order from filtered per-video data
@@ -499,6 +500,33 @@ def apply_min_duration_filter(preds, min_duration=5, background_class=0):
     return preds
 
 
+def apply_gap_fill(preds, max_gap=5, background_class=0):
+    """
+    Fill short background gaps between identical behaviors.
+    If background appears for <= max_gap frames between the same behavior on both sides,
+    replace the background with that behavior.
+    """
+    preds = np.array(preds, dtype=int)
+    i = 0
+    while i < len(preds):
+        if preds[i] != background_class:
+            i += 1
+            continue
+        # Found a background run — find its extent
+        j = i
+        while j < len(preds) and preds[j] == background_class:
+            j += 1
+        gap_length = j - i
+        # Check if gap is short enough and flanked by the same behavior
+        if gap_length <= max_gap and i > 0 and j < len(preds):
+            before = preds[i - 1]
+            after = preds[j]
+            if before == after and before != background_class:
+                preds[i:j] = before
+        i = j
+    return preds
+
+
 def count_behavior_instances(predictions, behavior_label):
     """Count behavior instances by detecting transitions to the behavior (0->1 transitions in binary mask)."""
     behavior_mask = (predictions == behavior_label).astype(int)
@@ -514,7 +542,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v12_eval_stride"
+    DATASET_VERSION = "CNN_Transformer_v13_gapfill"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -801,8 +829,9 @@ if __name__ == "__main__":
 
     # Training confusion matrix
     cm_train = confusion_matrix(y_true_train, y_pred_train)
+    cm_train_pct = cm_train.astype(float) / cm_train.sum(axis=1, keepdims=True) * 100
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm_train, annot=True, fmt='d', cmap='Greens',
+    sns.heatmap(cm_train_pct, annot=True, fmt='.1f', cmap='Greens',
                 xticklabels=behavior_names,
                 yticklabels=behavior_names)
     plt.title(f'Training Set Confusion Matrix - {DATASET_VERSION}')
@@ -936,8 +965,9 @@ if __name__ == "__main__":
 
     # Test confusion matrix
     cm = confusion_matrix(y_true, y_pred)
+    cm_pct = cm.astype(float) / cm.sum(axis=1, keepdims=True) * 100
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+    sns.heatmap(cm_pct, annot=True, fmt='.1f', cmap='Blues',
                 xticklabels=behavior_names,
                 yticklabels=behavior_names)
     plt.title(f'Test Set Confusion Matrix - {DATASET_VERSION}')

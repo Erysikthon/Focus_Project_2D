@@ -56,22 +56,23 @@ class CNNFeatureExtractor(nn.Module):
         super().__init__()
 
         # Initial convolution
+        # Input (H=142, W=76) -> after two stride-2 convs + maxpool -> (H=18, W=9)
         self.initial_conv = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.Conv2d(32, 48, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm2d(48),
+            nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
         # ResBlock population 1
-        self.res_blocks_1 = nn.Sequential(*[ResBlock2D(48) for _ in range(3)])
+        self.res_blocks_1 = nn.Sequential(*[ResBlock2D(64) for _ in range(3)])
 
-        # Transition layer
+        # Transition layer -> (H=9, W=5)
         self.transition_1 = nn.Sequential(
-            nn.Conv2d(48, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU()
         )
@@ -79,18 +80,17 @@ class CNNFeatureExtractor(nn.Module):
         # ResBlock population 2
         self.res_blocks_2 = nn.Sequential(*[ResBlock2D(64) for _ in range(3)])
 
-        # Transition layer
+        # Transition layer -> (H=5, W=3)
         self.transition_2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.AvgPool2d(kernel_size=2, stride=1)  # (3,5) -> (2,4)
+            nn.ReLU()
         )
 
-        # Feature projection
+        # Feature projection (128 * 5 * 3 = 1920 spatial positions preserved)
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 2 * 4, feature_dim),
+            nn.Linear(128 * 5 * 3, feature_dim),
             nn.ReLU(),
             nn.Dropout(0.3)
         )
@@ -542,7 +542,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v13_gapfill"
+    DATASET_VERSION = "CNN_Transformer_v13_gapfill_CNN_opt"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

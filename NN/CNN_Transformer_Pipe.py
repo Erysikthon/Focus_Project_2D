@@ -407,18 +407,17 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
 
     # Consensus voting: aggregate predictions per unique (video_id, frame_idx)
     from collections import defaultdict
-    from scipy import stats
 
-    frame_predictions = defaultdict(list)  # {(video_id, frame_idx): [pred1, pred2, ...]}
+    frame_predictions = defaultdict(list)  # {(video_id, frame_idx): [probs1, probs2, ...]}
     frame_labels = {}  # {(video_id, frame_idx): true_label}
 
     with torch.no_grad():
         for batch_idx, (batch_X, batch_y) in enumerate(tqdm(dataloader, desc="Evaluating")):
             batch_X = batch_X.to(device)
             outputs = model(batch_X)  # (batch, seq_len, num_classes)
-            _, predicted = torch.max(outputs, 2)  # (batch, seq_len)
+            probs = torch.softmax(outputs, dim=2)  # (batch, seq_len, num_classes)
 
-            predicted_np = predicted.cpu().numpy()
+            probs_np = probs.cpu().numpy()
             labels_np = batch_y.numpy()
 
             # Get metadata for this batch
@@ -436,7 +435,7 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
                     frame_idx = start_frame + frame_offset
                     key = (video_id, frame_idx)
 
-                    frame_predictions[key].append(predicted_np[b, frame_offset])
+                    frame_predictions[key].append(probs_np[b, frame_offset])  # shape: (num_classes,)
                     frame_labels[key] = labels_np[b, frame_offset]  # Same label from all sequences
 
     # Apply majority voting
@@ -447,7 +446,7 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
     for key in sorted(frame_predictions.keys()):
         video_id, frame_idx = key
         preds = frame_predictions[key]
-        consensus_pred = stats.mode(preds, keepdims=False)[0]
+        consensus_pred = np.argmax(np.sum(preds, axis=0))
 
         consensus_preds.append(consensus_pred)
         consensus_labels.append(frame_labels[key])
@@ -474,7 +473,7 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
         return np.array(consensus_preds), np.array(consensus_labels), dict(per_video_data)
     return np.array(consensus_preds), np.array(consensus_labels)
 
-
+# Final Label Smoothing
 def apply_min_duration_filter(preds, min_duration=5, background_class=0):
     """
     Remove short predicted runs of non-background classes.
@@ -526,7 +525,7 @@ def apply_gap_fill(preds, max_gap=5, background_class=0):
         i = j
     return preds
 
-
+# Behavior Counting
 def count_behavior_instances(predictions, behavior_label):
     """Count behavior instances by detecting transitions to the behavior (0->1 transitions in binary mask)."""
     behavior_mask = (predictions == behavior_label).astype(int)
@@ -542,14 +541,14 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v13_gapfill_CNN_opt"
+    DATASET_VERSION = "v14_OFT_added"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
     # Hyperparameters
-    SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behaviour duration is 30
+    SEQUENCE_LENGTH = 30 #tried 60, worse. Avg behavior duration is 30
     TRAIN_STRIDE = 10       # stride for training dataset
     EPOCH_EVAL_STRIDE = 10  # stride for per-epoch evaluation during training (fast)
     FINAL_EVAL_STRIDE = 5   # stride for final evaluation (denser, ~6 votes/frame via consensus)

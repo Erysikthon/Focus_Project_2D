@@ -542,7 +542,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "CNN_Transformer_v13_gapfill_CNN_opt"
+    DATASET_VERSION = "v13_gapfill_CNN_opt"
     VIDEO_FOLDER = "./data/rotated_videos"
     LABEL_FOLDER = "./data/labels"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

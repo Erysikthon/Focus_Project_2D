@@ -89,50 +89,11 @@ class VideoRotator:
         cv2.destroyAllWindows()
 
 video_names = []
-"""
-for i in range(1,20):
-    video_names.append(f"T{i}.avi")
-
-video_names.append("MBT1-M2.mp4")
-video_names.append("MBT1-M3.mp4")
-video_names.append("MBT1-M6.mp4")
-video_names.append("MBT1-M7.mp4")
-video_names.append("MBT1-M10.mp4")
-video_names.append("MBT1-M11.mp4")
-video_names.append("MBT1-M14.mp4")
-video_names.append("MBT1-M15.mp4")
-video_names.append("MBT1-M18.mp4")
-
-video_names.append("3278_21min_behaviour_2023-01-19T11_08_30.mp4")
-video_names.append("3279_21min_behaviour_2023-01-19T12_57_29.mp4")
-video_names.append("BehavioralCamera2023-03-09T10_37_32.mp4")
-video_names.append("BehavioralCamera2023-03-09T11_04_40.mp4")
-video_names.append("BehavioralCamera2023-03-09T11_41_07.mp4")
-video_names.append("BehavioralCamera2023-03-09T12_34_50.mp4")
-"""
-video_names.append("20231123_10min_OFT-BL_3919.mp4")
-video_names.append("20231123_10min_OFT-BL_3961.mp4")
-video_names.append("20231123_10min_OFT-BL_3962.mp4")
-video_names.append("20231123_10min_OFT-BL_3963.mp4")
-video_names.append("20231123_10min_OFT-BL_3964.mp4")
-video_names.append("20231123_10min_OFT-BL_4025.mp4")
-video_names.append("20231123_10min_OFT-BL_4028.mp4")
-video_names.append("20231123_10min_OFT-BL_4029.mp4")
-video_names.append("BehavioralCamera2023-03-09T12_08_14.mp4")
-video_names.append("BehavioralCamera2023-03-09T13_02_04.mp4")
-video_names.append("BehavioralCamera2023-03-09T14_30_45.mp4")
-
-video_names.append("BehavioralCamera2023-02-14T13_05_19_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-14T15_22_37_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-15T14_40_46_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-18T10_33_06_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-18T12_37_43_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-19T14_53_53_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-23T10_23_42_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-23T15_42_37_shorter.mp4")
-video_names.append("BehavioralCamera2023-02-24T11_06_53_shorter.mp4")
-
+for i in range(1, 22):
+    video_names.append(f"OFT_left_{i}.avi")
+video_names.pop(4)
+print(video_names)
 
 for v in video_names:
-    rotator = VideoRotator(f"./data/raw_videos/{v}", f"./data/rotated_videos/{v[:-4]}" + ".mp4", 76, 142)
-    rotator.follow(pd.read_csv(f"./data/tracking/{v[:-4]}" + ".csv"), "mouse_top.mouse_top_0.bodycentre","mouse_top.mouse_top_0.neck")
+    rotator = VideoRotator(f"./data_not_used/OFT/raw_videos/{v}", f"./data/rotated_videos_oft_left/{v[:-4]}" + ".mp4", 76, 142)
+    rotator.follow(pd.read_csv(f"./data_not_used/OFT/tracking/{v[:-4]}" + ".csv"), "mouse_top.mouse_top_0.bodycentre","mouse_top.mouse_top_0.neck")

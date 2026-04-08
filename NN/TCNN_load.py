@@ -16,8 +16,8 @@ from graphs import f1_over_epochs
 from TCNN import TCNN, train_loop, test_loop
 from create_video import annotate_video_with_predictions
 
-r = 3
-epoch = 0
+r = 15
+epoch = 120
 name = f"TCNN_{epoch}.pt"
 video = True
 kernels = False
@@ -91,7 +91,7 @@ train_set = RandomizedDataset(features_folder, labels_folder,  video_names_train
 test_set = SingleVideoDatasetCollection(features_folder, labels_folder, video_names_test, behaviors,s = 1, r = r, identity = "TEST single dataset collection")
 
 train_data_loader = DataLoader(train_set, 72)
-test_data_loader = DataLoader(test_set, 5000)
+test_data_loader = DataLoader(test_set, 300)
 
 """
 train_set.__getitem__(0, debug = True)

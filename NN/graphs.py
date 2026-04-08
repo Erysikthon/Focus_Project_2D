@@ -138,3 +138,8 @@ def kernel_heatmap_3d(
     plt.tight_layout()
     plt.savefig(output_path, dpi=200)
     plt.close(fig)
+
+def plot_activation_map(image : torch.Tensor, output_folder : str, epoch : int):
+    plt.figure(figsize=(10,6))
+    sns.heatmap(image.to("cpu").numpy()[0,0,0,:,:])
+    plt.savefig(output_folder + f"/heatmap_at_epoch_{epoch}.png")

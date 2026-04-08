@@ -550,7 +550,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v14_OFT_added_org_resnet"
+    DATASET_VERSION = "v14_OFT_added_org_resnet_fixed_real"
     VIDEO_FOLDER = "./data/rotated_videos_with_OFT"
     LABEL_FOLDER = "./data/labels_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

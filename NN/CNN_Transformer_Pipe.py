@@ -226,7 +226,8 @@ class VideoSequenceDataset(Dataset):
     Returns per-frame labels for behavior transition detection
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
-                 stride=10, img_size=(76, 142), background_undersample_ratio=1.0):
+                 stride=10, img_size=(76, 142), background_undersample_ratio=1.0,
+                 behavior_names=None):
         """
         Args:
             video_folder: Path to folder containing .mp4 files
@@ -247,6 +248,7 @@ class VideoSequenceDataset(Dataset):
         self.labels = []  # For compatibility (will store first frame label of each sequence)
         self.label_cache = {}  # Cache video labels to avoid reloading CSV files
         self.background_undersample_ratio = background_undersample_ratio
+        self.behavior_names = behavior_names  # Global behavior list; None = infer per-video (legacy)
 
         print(f"Indexing sequences from {len(video_ids)} videos...")
         self._index_sequences(video_ids)
@@ -268,13 +270,19 @@ class VideoSequenceDataset(Dataset):
             # Load labels
             try:
                 labels_df = pd.read_csv(label_path)
-                behavior_columns = [col for col in labels_df.columns if col not in ['Unnamed: 0', 'frame']]
-                if len(behavior_columns) > 0:
-                    video_labels = labels_df[behavior_columns].values.argmax(axis=1)
-                    self.label_cache[video_id] = video_labels  # Cache labels for this video
+                if self.behavior_names is not None:
+                    # Align to global behavior list: missing columns become all-zero (background)
+                    for col in self.behavior_names:
+                        if col not in labels_df.columns:
+                            labels_df[col] = 0
+                    video_labels = labels_df[self.behavior_names].values.argmax(axis=1)
                 else:
-                    print(f"Warning: Invalid label format for {video_id}")
-                    continue
+                    behavior_columns = [col for col in labels_df.columns if col not in ['Unnamed: 0', 'frame']]
+                    if len(behavior_columns) == 0:
+                        print(f"Warning: Invalid label format for {video_id}")
+                        continue
+                    video_labels = labels_df[behavior_columns].values.argmax(axis=1)
+                self.label_cache[video_id] = video_labels  # Cache labels for this video
             except Exception as e:
                 print(f"Error loading labels for {video_id}: {e}")
                 continue
@@ -588,42 +596,51 @@ if __name__ == "__main__":
     print(f"Manual split: Total videos: {len(all_video_ids)}, Test videos: {len(test_video_ids)}, Train videos: {len(train_video_ids)}")
     print(f"Test video IDs: {test_video_ids}")
 
+    # Get behavior class names as union across all label files (handles videos with missing behaviors)
+    all_behavior_cols = set()
+    for vid in all_video_ids:
+        lp = os.path.join(LABEL_FOLDER, f"{vid}.csv")
+        if os.path.exists(lp):
+            df = pd.read_csv(lp, nrows=0)  # only read header
+            cols = [c for c in df.columns if c not in ['Unnamed: 0', 'frame']]
+            all_behavior_cols.update(cols)
+    behavior_names = sorted(all_behavior_cols)  # sorted for consistent ordering
+
+    num_classes = len(behavior_names)
+    print(f"Classes: {behavior_names}")
+    print(f"Number of classes: {num_classes}")
+
     # Create datasets
     print(f"\nCreating training dataset from {len(train_video_ids)} videos...")
     train_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
         SEQUENCE_LENGTH, TRAIN_STRIDE, IMG_SIZE,
-        background_undersample_ratio=BACKGROUND_UNDERSAMPLE_RATIO
+        background_undersample_ratio=BACKGROUND_UNDERSAMPLE_RATIO,
+        behavior_names=behavior_names
     )
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
     print(f"\nCreating epoch eval dataset (stride={EPOCH_EVAL_STRIDE})...")
     epoch_test_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-        SEQUENCE_LENGTH, EPOCH_EVAL_STRIDE, IMG_SIZE
+        SEQUENCE_LENGTH, EPOCH_EVAL_STRIDE, IMG_SIZE,
+        behavior_names=behavior_names
     )
     print(f"Epoch eval dataset: {len(epoch_test_dataset)} sequences")
 
     print(f"\nCreating final eval datasets (stride={FINAL_EVAL_STRIDE})...")
     train_eval_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
-        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE
+        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE,
+        behavior_names=behavior_names
     )
     test_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
-        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE
+        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE,
+        behavior_names=behavior_names
     )
     print(f"Train eval dataset: {len(train_eval_dataset)} sequences")
     print(f"Test dataset: {len(test_dataset)} sequences")
-
-    # Get behavior class names from first label file
-    sample_label_path = os.path.join(LABEL_FOLDER, f"{all_video_ids[0]}.csv")
-    sample_df = pd.read_csv(sample_label_path)
-    behavior_names = [col for col in sample_df.columns if col not in ['Unnamed: 0', 'frame']]
-
-    num_classes = len(behavior_names)
-    print(f"Classes: {behavior_names}")
-    print(f"Number of classes: {num_classes}")
 
     # Convert labels to PyTorch tensors (they're already integer indices from argmax)
     train_dataset.labels = [int(label) for label in train_dataset.labels]

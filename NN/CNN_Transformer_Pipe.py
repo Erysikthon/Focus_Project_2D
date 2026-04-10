@@ -12,7 +12,6 @@ Output: Behavior classification per frame(sequence??maybe better)
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import cv2
@@ -33,18 +32,19 @@ import joblib
 
 class ResBlock2D(nn.Module):
     """2D Residual Block for spatial feature extraction"""
-    def __init__(self, channels):
+    def __init__(self, channels : int):
         super().__init__()
         self.conv_block = nn.Sequential(
-            nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(channels, channels, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
             nn.BatchNorm2d(channels),
             nn.ReLU(),
-            nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(channels, channels, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
             nn.BatchNorm2d(channels)
         )
+        self.relu = nn.modules.ReLU()
 
     def forward(self, x):
-        return F.relu(x + self.conv_block(x))
+        return self.relu(x + self.conv_block(x))
 
 
 class CNNFeatureExtractor(nn.Module):
@@ -53,45 +53,53 @@ class CNNFeatureExtractor(nn.Module):
     Input: (batch, 1, H, W) - grayscale frames
     Output: (batch, feature_dim) - feature vector per frame
     """
-    def __init__(self, feature_dim=512):
+    def __init__(self, feature_dim : int = 512, res_depth : int = 4):
         super().__init__()
 
         # Initial convolution
         # Input (H=142, W=76) -> after two stride-2 convs + maxpool -> (H=18, W=9)
+
         self.initial_conv = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=5, stride=2, padding=2),
+            nn.Conv2d(1, 32, kernel_size = (5, 5), stride = (2, 2), padding = (2, 2)),
             nn.BatchNorm2d(32),
+            nn.Conv2d(32, 48, kernel_size = (5, 5), stride = (2, 2), padding = (2, 2)),
+            nn.BatchNorm2d(48),
             nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm2d(64),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
         )
+        ## took out the maxpooling here. At the first stages it's a big information loss.
 
         # ResBlock population 1
-        self.res_blocks_1 = nn.Sequential(*[ResBlock2D(64) for _ in range(3)])
+        self.res_blocks_1 = nn.Sequential(*[ResBlock2D(48) for _ in range(res_depth)])
 
         # Transition layer -> (H=9, W=5)
         self.transition_1 = nn.Sequential(
-            nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(48, 64, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
             nn.BatchNorm2d(64),
-            nn.ReLU()
+            nn.Conv2d(64, 64, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size = (2, 2), stride = (2, 2), padding = (0, 0))
         )
 
         # ResBlock population 2
-        self.res_blocks_2 = nn.Sequential(*[ResBlock2D(64) for _ in range(3)])
+        self.res_blocks_2 = nn.Sequential(*[ResBlock2D(64) for _ in range(res_depth)])
 
         # Transition layer -> (H=5, W=3)
         self.transition_2 = nn.Sequential(
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU()
+            nn.Conv2d(64, 80, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
+            nn.BatchNorm2d(80),
+            nn.Conv2d(80, 80, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
+            nn.BatchNorm2d(80),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size = (2, 2), stride = (2, 2), padding = (0, 0))
         )
 
-        # Feature projection (128 * 5 * 3 = 1920 spatial positions preserved)
+        self.res_blocks_3 = nn.Sequential(*[ResBlock2D(80) for _ in range(res_depth)])
+
+        # Feature projection (80 * 9 * 4 spatial positions preserved)
         self.fc = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 5 * 3, feature_dim),
+            nn.Linear(80 * 9 * 4, feature_dim),
             nn.ReLU(),
             nn.Dropout(0.3)
         )
@@ -106,6 +114,7 @@ class CNNFeatureExtractor(nn.Module):
         x = self.transition_1(x)
         x = self.res_blocks_2(x)
         x = self.transition_2(x)
+        x = self.res_blocks_3(x)
         x = self.fc(x)
         return x
 
@@ -550,7 +559,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v14_OFT_added_org_resnet_without_OFT"
+    DATASET_VERSION = "v14_with_OFT_dani_changes"
     VIDEO_FOLDER = "./data/rotated_videos"  #_with_OFT"
     LABEL_FOLDER = "./data/labels"  #_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

@@ -550,9 +550,9 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v14_OFT_added_org_resnet_fixed_real"
-    VIDEO_FOLDER = "./data/rotated_videos_with_OFT"
-    LABEL_FOLDER = "./data/labels_with_OFT"
+    DATASET_VERSION = "v14_OFT_added_org_resnet_without_OFT"
+    VIDEO_FOLDER = "./data/rotated_videos"  #_with_OFT"
+    LABEL_FOLDER = "./data/labels"  #_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
@@ -586,8 +586,7 @@ if __name__ == "__main__":
     # Manual train/test split (matching Transformer_Pipe_2D.py)
     manual_test_video_ids = ['3279_21min_behaviour_2023-01-19T12_57_29', '20231123_10min_OFT-BL_4028',
                              'BehavioralCamera2023-02-23T10_23_42_shorter', 'MBT1-M2', 'T2',
-                             'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1',
-                             'OFT_left_6', 'OFT_left_17']
+                             'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1'] #,'OFT_left_6', 'OFT_left_17']
 
     # Use manually specified test videos
     test_video_ids = [vid for vid in manual_test_video_ids if vid in all_video_ids]

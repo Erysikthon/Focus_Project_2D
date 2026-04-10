@@ -264,6 +264,7 @@ class VideoSequenceDataset(Dataset):
 
     def _index_sequences(self, video_ids):
         """Create index of sequences without loading video frames"""
+        bg_class_idx = self.behavior_names.index('background') if self.behavior_names is not None and 'background' in self.behavior_names else 0
         for video_id in tqdm(video_ids, desc="Indexing videos"):
             video_path = os.path.join(self.video_folder, f"{video_id}.mp4")
             label_path = os.path.join(self.label_folder, f"{video_id}.csv")
@@ -308,7 +309,7 @@ class VideoSequenceDataset(Dataset):
             # Index sequences (don't load frames yet)
             for start_idx in range(0, min(total_frames, len(video_labels)) - self.sequence_length + 1, self.stride):
                 seq_labels = video_labels[start_idx:start_idx + self.sequence_length]
-                bg_ratio = np.mean(seq_labels == 0)  # background is class 0
+                bg_ratio = np.mean(seq_labels == bg_class_idx)
 
                 # Undersample background-dominated sequences
                 if bg_ratio > 0.8 and np.random.random() > self.background_undersample_ratio:
@@ -559,7 +560,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v14_with_OFT_dani_changes"
+    DATASET_VERSION = "v14_with_OFT_dani_changes_fixed"
     VIDEO_FOLDER = "./data/rotated_videos"  #_with_OFT"
     LABEL_FOLDER = "./data/labels"  #_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

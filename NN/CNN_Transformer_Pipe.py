@@ -560,9 +560,9 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v14_with_OFT_dani_changes_fixed"
-    VIDEO_FOLDER = "./data/rotated_videos"  #_with_OFT"
-    LABEL_FOLDER = "./data/labels"  #_with_OFT"
+    DATASET_VERSION = "v14_val_set"
+    VIDEO_FOLDER = "./data/rotated_videos_with_OFT"  #_with_OFT"
+    LABEL_FOLDER = "./data/labels_with_OFT"  #_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
@@ -593,17 +593,49 @@ if __name__ == "__main__":
     all_video_ids = [f.replace('.mp4', '') for f in os.listdir(VIDEO_FOLDER)
                      if f.endswith('.mp4')]
 
-    # Manual train/test split (matching Transformer_Pipe_2D.py)
-    manual_test_video_ids = ['3279_21min_behaviour_2023-01-19T12_57_29', '20231123_10min_OFT-BL_4028',
-                             'BehavioralCamera2023-02-23T10_23_42_shorter', 'MBT1-M2', 'T2',
-                             'MBT1-M7', 'T8', 'T4', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'T1'] #,'OFT_left_6', 'OFT_left_17']
+    # Balanced train / val / test split (from balance_train_val_test_split.py)
+    # Val is used for early stopping; test is evaluated once on the final best model.
+    train_video_ids = ['20231123_10min_OFT-BL_3919', '20231123_10min_OFT-BL_3961',
+                       '20231123_10min_OFT-BL_3962', '20231123_10min_OFT-BL_3963',
+                       '20231123_10min_OFT-BL_3964', '20231123_10min_OFT-BL_4029',
+                       '3279_21min_behaviour_2023-01-19T12_57_29',
+                       'BehavioralCamera2023-02-14T13_05_19_shorter',
+                       'BehavioralCamera2023-02-14T15_22_37_shorter',
+                       'BehavioralCamera2023-02-15T14_40_46_shorter',
+                       'BehavioralCamera2023-02-23T10_23_42_shorter',
+                       'BehavioralCamera2023-02-23T15_42_37_shorter',
+                       'BehavioralCamera2023-02-24T11_06_53_shorter',
+                       'BehavioralCamera2023-03-09T10_37_32', 'BehavioralCamera2023-03-09T12_08_14',
+                       'BehavioralCamera2023-03-09T12_34_50', 'BehavioralCamera2023-03-09T13_02_04',
+                       'BehavioralCamera2023-03-09T14_30_45',
+                       'MBT1-M11', 'MBT1-M14', 'MBT1-M15', 'MBT1-M18', 'MBT1-M2', 'MBT1-M6',
+                       'OFT_left_1', 'OFT_left_11', 'OFT_left_12', 'OFT_left_13', 'OFT_left_15',
+                       'OFT_left_17', 'OFT_left_19', 'OFT_left_4', 'OFT_left_6', 'OFT_left_7',
+                       'OFT_left_8', 'OFT_left_9',
+                       'T1', 'T10', 'T12', 'T14', 'T16', 'T17', 'T18', 'T19',
+                       'T3', 'T4', 'T5', 'T6', 'T8', 'T9']
+    val_video_ids   = ['20231123_10min_OFT-BL_4025', '20231123_10min_OFT-BL_4028',
+                       'BehavioralCamera2023-02-18T10_33_06_shorter',
+                       'BehavioralCamera2023-02-19T14_53_53_shorter',
+                       'BehavioralCamera2023-03-09T11_41_07',
+                       'MBT1-M10', 'MBT1-M3',
+                       'OFT_left_16', 'OFT_left_18', 'OFT_left_2',
+                       'T11', 'T15']
+    test_video_ids  = ['3278_21min_behaviour_2023-01-19T11_08_30',
+                       'BehavioralCamera2023-02-18T12_37_43_shorter',
+                       'BehavioralCamera2023-03-09T11_04_40',
+                       'MBT1-M7',
+                       'OFT_left_10', 'OFT_left_14', 'OFT_left_20', 'OFT_left_21', 'OFT_left_3',
+                       'T13', 'T2', 'T7']
 
-    # Use manually specified test videos
-    test_video_ids = [vid for vid in manual_test_video_ids if vid in all_video_ids]
-    train_video_ids = [vid for vid in all_video_ids if vid not in test_video_ids]
+    # Filter to videos actually present on disk
+    train_video_ids = [v for v in train_video_ids if v in all_video_ids]
+    val_video_ids   = [v for v in val_video_ids   if v in all_video_ids]
+    test_video_ids  = [v for v in test_video_ids  if v in all_video_ids]
 
-    print(f"Manual split: Total videos: {len(all_video_ids)}, Test videos: {len(test_video_ids)}, Train videos: {len(train_video_ids)}")
-    print(f"Test video IDs: {test_video_ids}")
+    print(f"Split: {len(train_video_ids)} train / {len(val_video_ids)} val / {len(test_video_ids)} test videos")
+    print(f"Val IDs:  {val_video_ids}")
+    print(f"Test IDs: {test_video_ids}")
 
     # Get behavior class names as union across all label files (handles videos with missing behaviors)
     all_behavior_cols = set()
@@ -629,17 +661,22 @@ if __name__ == "__main__":
     )
     print(f"Training dataset created: {len(train_dataset)} sequences")
 
-    print(f"\nCreating epoch eval dataset (stride={EPOCH_EVAL_STRIDE})...")
-    epoch_test_dataset = VideoSequenceDataset(
-        VIDEO_FOLDER, LABEL_FOLDER, test_video_ids,
+    print(f"\nCreating epoch val dataset from {len(val_video_ids)} val videos (stride={EPOCH_EVAL_STRIDE})...")
+    epoch_val_dataset = VideoSequenceDataset(
+        VIDEO_FOLDER, LABEL_FOLDER, val_video_ids,
         SEQUENCE_LENGTH, EPOCH_EVAL_STRIDE, IMG_SIZE,
         behavior_names=behavior_names
     )
-    print(f"Epoch eval dataset: {len(epoch_test_dataset)} sequences")
+    print(f"Epoch val dataset: {len(epoch_val_dataset)} sequences")
 
     print(f"\nCreating final eval datasets (stride={FINAL_EVAL_STRIDE})...")
     train_eval_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
+        SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE,
+        behavior_names=behavior_names
+    )
+    val_eval_dataset = VideoSequenceDataset(
+        VIDEO_FOLDER, LABEL_FOLDER, val_video_ids,
         SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE,
         behavior_names=behavior_names
     )
@@ -649,10 +686,12 @@ if __name__ == "__main__":
         behavior_names=behavior_names
     )
     print(f"Train eval dataset: {len(train_eval_dataset)} sequences")
-    print(f"Test dataset: {len(test_dataset)} sequences")
+    print(f"Val eval dataset:   {len(val_eval_dataset)} sequences")
+    print(f"Test dataset:       {len(test_dataset)} sequences")
 
-    # Convert labels to PyTorch tensors (they're already integer indices from argmax)
+    # Convert labels to int (they're already integer indices from argmax)
     train_dataset.labels = [int(label) for label in train_dataset.labels]
+    val_eval_dataset.labels = [int(label) for label in val_eval_dataset.labels]
     test_dataset.labels = [int(label) for label in test_dataset.labels]
 
     # Save behavior names for later use
@@ -711,6 +750,7 @@ if __name__ == "__main__":
         print(f"DATASET INFO")
         print(f"{'='*60}")
         print(f"Training sequences:       {len(train_dataset)}")
+        print(f"Val sequences:            {len(val_eval_dataset)}")
         print(f"Test sequences:           {len(test_dataset)}")
         print(f"Classes:                  {behavior_names}")
         print(f"{'='*60}\n")
@@ -742,17 +782,17 @@ if __name__ == "__main__":
 
         SKIP_TRAINING = False
 
-    # Create epoch eval dataloader (fast, used during training loop)
-    epoch_test_loader = DataLoader(epoch_test_dataset, batch_size=BATCH_SIZE, shuffle=False,
-                                   num_workers=2, pin_memory=True)
+    # Create epoch val dataloader (fast stride, used for early stopping during training)
+    epoch_val_loader = DataLoader(epoch_val_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                  num_workers=2, pin_memory=True)
 
-    # Create final test dataloader (denser stride, used for final evaluation)
-    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
-                             num_workers=2, pin_memory=True)
-
-    # Create train evaluation dataloader (for final evaluation only, not training)
+    # Create final eval dataloaders (denser stride)
     train_eval_loader = DataLoader(train_eval_dataset, batch_size=BATCH_SIZE, shuffle=False,
                                    num_workers=2, pin_memory=True)
+    val_eval_loader = DataLoader(val_eval_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                                 num_workers=2, pin_memory=True)
+    test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
+                             num_workers=2, pin_memory=True)
 
     # Class weights for imbalanced data (needed for training or info)
     unique, counts = np.unique(train_dataset.labels, return_counts=True)
@@ -772,7 +812,7 @@ if __name__ == "__main__":
     for cls_idx in range(num_classes):
         count = class_counts.get(cls_idx, 0)
         if count > 0:
-            class_weights[cls_idx] = (total_samples / (n_classes * count)) ** 0.7
+            class_weights[cls_idx] = (total_samples / (num_classes * count)) ** 0.7
         else:
             class_weights[cls_idx] = 1.0
 
@@ -804,17 +844,17 @@ if __name__ == "__main__":
 
             train_loss = train_epoch(model, train_loader, criterion, optimizer, device, scheduler)
 
-            # Evaluate test set with consensus voting (fast stride for per-epoch speed)
-            y_pred, y_true = evaluate(model, epoch_test_loader, device, use_consensus=True)
-            test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
-            test_f1 = f1_score(y_true, y_pred, average='macro')
+            # Evaluate val set with consensus voting (fast stride for per-epoch speed)
+            y_pred, y_true = evaluate(model, epoch_val_loader, device, use_consensus=True)
+            val_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
+            val_f1 = f1_score(y_true, y_pred, average='macro')
 
             print(f"Train Loss: {train_loss:.4f}")
-            print(f"Test Acc (consensus): {test_acc:.2f}%, Test F1 (consensus): {test_f1:.4f}")
+            print(f"Val Acc (consensus): {val_acc:.2f}%, Val F1 (consensus): {val_f1:.4f}")
 
-            # Save best model
-            if test_f1 > best_f1:
-                best_f1 = test_f1
+            # Save best model based on val F1 (test set not touched during training)
+            if val_f1 > best_f1:
+                best_f1 = val_f1
                 torch.save({
                     'model_state_dict': model.state_dict(),
                     'cnn_feature_dim': CNN_FEATURE_DIM,
@@ -826,7 +866,7 @@ if __name__ == "__main__":
                     'sequence_length': SEQUENCE_LENGTH,
                     'img_size': IMG_SIZE
                 }, MODEL_PATH)
-                print(f"→ New best model saved! F1: {best_f1:.4f}")
+                print(f"→ New best model saved! Val F1: {best_f1:.4f}")
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -866,6 +906,26 @@ if __name__ == "__main__":
     plt.xlabel('Predicted Label')
     plt.tight_layout()
     plt.savefig(f'./output_cnn_transformer/conf_matrix_train_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
+
+    log("\n" + "="*60)
+    log("FINAL VALIDATION SET EVALUATION")
+    log("="*60)
+
+    y_pred_val, y_true_val = evaluate(model, val_eval_loader, device)
+    log("\nClassification Report:")
+    log(classification_report(y_true_val, y_pred_val, target_names=behavior_names))
+
+    cm_val = confusion_matrix(y_true_val, y_pred_val)
+    cm_val_pct = cm_val.astype(float) / cm_val.sum(axis=1, keepdims=True) * 100
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm_val_pct, annot=True, fmt='.1f', cmap='Oranges',
+                xticklabels=behavior_names,
+                yticklabels=behavior_names)
+    plt.title(f'Validation Set Confusion Matrix - {DATASET_VERSION}')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    plt.savefig(f'./output_cnn_transformer/conf_matrix_val_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
 
     log("\n" + "="*60)
     log("FINAL TEST SET EVALUATION")

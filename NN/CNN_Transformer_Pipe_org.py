@@ -543,8 +543,8 @@ if __name__ == "__main__":
 
     # Configuration
     DATASET_VERSION = "v15_val_set"
-    VIDEO_FOLDER = "./data/rotated_videos"  #_with_OFT"
-    LABEL_FOLDER = "./data/labels"  #_with_OFT"
+    VIDEO_FOLDER = "./data/rotated_videos_with_OFT"  #_with_OFT"
+    LABEL_FOLDER = "./data/labels_with_OFT"  #_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_ORG_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 

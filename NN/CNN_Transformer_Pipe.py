@@ -571,7 +571,6 @@ if __name__ == "__main__":
     TRAIN_STRIDE = 10       # stride for training dataset
     EPOCH_EVAL_STRIDE = 10  # stride for per-epoch evaluation during training (fast)
     FINAL_EVAL_STRIDE = 5   # stride for final evaluation (denser, ~6 votes/frame via consensus)
-    BACKGROUND_UNDERSAMPLE_RATIO = 0.5  # keep 50% of sequences where >80% frames are background, tried 0.3 (v10)
     IMG_SIZE = (76, 142)  # Original video dimensions (width, height)
     BATCH_SIZE = 32  # Increased from 16 for faster training
     NUM_EPOCHS = 100
@@ -656,7 +655,6 @@ if __name__ == "__main__":
     train_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
         SEQUENCE_LENGTH, TRAIN_STRIDE, IMG_SIZE,
-        background_undersample_ratio=BACKGROUND_UNDERSAMPLE_RATIO,
         behavior_names=behavior_names
     )
     print(f"Training dataset created: {len(train_dataset)} sequences")

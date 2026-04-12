@@ -88,6 +88,9 @@ class CNNFeatureExtractor(nn.Module):
             nn.ReLU()
         )
 
+        # ResBlock population 3
+        self.res_blocks_3 = nn.Sequential(*[ResBlock2D(128) for _ in range(3)])
+
         # Feature projection (128 * 5 * 3 = 1920 spatial positions preserved)
         self.fc = nn.Sequential(
             nn.Flatten(),
@@ -106,6 +109,7 @@ class CNNFeatureExtractor(nn.Module):
         x = self.transition_1(x)
         x = self.res_blocks_2(x)
         x = self.transition_2(x)
+        x = self.res_blocks_3(x)
         x = self.fc(x)
         return x
 
@@ -542,7 +546,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "org_v15_val_set"
+    DATASET_VERSION = "org_v16_val_set"
     VIDEO_FOLDER = "./data/rotated_videos_with_OFT"  #_with_OFT"
     LABEL_FOLDER = "./data/labels_with_OFT"  #_with_OFT"
     MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"

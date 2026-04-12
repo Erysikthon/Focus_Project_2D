@@ -542,10 +542,10 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "v15_val_set"
+    DATASET_VERSION = "org_v15_val_set"
     VIDEO_FOLDER = "./data/rotated_videos_with_OFT"  #_with_OFT"
     LABEL_FOLDER = "./data/labels_with_OFT"  #_with_OFT"
-    MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_ORG_{DATASET_VERSION}.pth"
+    MODEL_PATH = f"./output_cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output_cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
     # Hyperparameters

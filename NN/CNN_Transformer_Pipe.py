@@ -896,8 +896,8 @@ if __name__ == "__main__":
     cm_train = confusion_matrix(y_true_train, y_pred_train)
     cm_train_pct = cm_train.astype(float) / cm_train.sum(axis=1, keepdims=True) * 100
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm_train_pct, annot=True, fmt='.1f', cmap='Greens',
-                xticklabels=behavior_names,
+    sns.heatmap(cm_train_pct[:, ::-1], annot=True, fmt='.1f', cmap='Greens',
+                xticklabels=behavior_names[::-1],
                 yticklabels=behavior_names)
     plt.title(f'Training Set Confusion Matrix - {DATASET_VERSION}')
     plt.ylabel('True Label')
@@ -916,8 +916,8 @@ if __name__ == "__main__":
     cm_val = confusion_matrix(y_true_val, y_pred_val)
     cm_val_pct = cm_val.astype(float) / cm_val.sum(axis=1, keepdims=True) * 100
     plt.figure(figsize=(10, 8))
-    sns.heatmap(cm_val_pct, annot=True, fmt='.1f', cmap='Oranges',
-                xticklabels=behavior_names,
+    sns.heatmap(cm_val_pct[:, ::-1], annot=True, fmt='.1f', cmap='Oranges',
+                xticklabels=behavior_names[::-1],
                 yticklabels=behavior_names)
     plt.title(f'Validation Set Confusion Matrix - {DATASET_VERSION}')
     plt.ylabel('True Label')
@@ -932,6 +932,19 @@ if __name__ == "__main__":
     y_pred, y_true, per_video_data = evaluate(model, test_loader, device, return_per_video=True)
     log("\nClassification Report:")
     log(classification_report(y_true, y_pred, target_names=behavior_names))
+
+    cm_test = confusion_matrix(y_true, y_pred)
+    cm_test_pct = cm_test.astype(float) / cm_test.sum(axis=1, keepdims=True) * 100
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(cm_test_pct[:, ::-1], annot=True, fmt='.1f', cmap='Blues',
+                xticklabels=behavior_names[::-1],
+                yticklabels=behavior_names)
+    plt.title(f'Test Set Confusion Matrix - {DATASET_VERSION}')
+    plt.ylabel('True Label')
+    plt.xlabel('Predicted Label')
+    plt.tight_layout()
+    plt.savefig(f'./output_cnn_transformer/conf_matrix_test_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
+    plt.close()
 
     log("\n" + "="*60)
     log("PER-VIDEO TEST EVALUATION")

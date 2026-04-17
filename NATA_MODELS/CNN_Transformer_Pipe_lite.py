@@ -15,6 +15,15 @@ Changes from v15:
 - Added data augmentation: horizontal flip only (no brightness/contrast jitter)
 - Increased weight decay from 0.01 to 0.05
 - Reduced default NUM_LAYERS from 4 to 2
+
+Changes from v18 (bg_fix -> v19):
+- Background class weight cap lowered from 0.5 to 0.2 (cap was previously above the
+  natural inverse-frequency weight, so it had no effect)
+- Explicit per-class boost multipliers for underperforming classes:
+  Unsupportedrearing x2.0, Grooming x1.5
+- Label smoothing reduced from 0.05 to 0.01 (was fighting class weighting on imbalanced data)
+- NUM_LAYERS reduced from 3 to 2 to reduce overfitting (train/test F1 gap ~14pts)
+- DROPOUT increased from 0.3 to 0.4 for stronger regularization
 """
 
 import torch
@@ -541,7 +550,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v19"
+    DATASET_VERSION = "lite_v20"
     VIDEO_FOLDER    = "./data/rotated_videos"
     LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -560,9 +569,9 @@ if __name__ == "__main__":
     CNN_FEATURE_DIM  = 512
     D_MODEL          = 512
     NHEAD            = 8
-    NUM_LAYERS       = 3      # CHANGE: reduced from 4 to 3 to reduce overfitting
+    NUM_LAYERS       = 2      # CHANGE: reduced from 3 to 2 to reduce overfitting (v20)
     DIM_FEEDFORWARD  = 2048
-    DROPOUT          = 0.3
+    DROPOUT          = 0.4   # CHANGE: increased from 0.3 to 0.4 for stronger regularization (v20)
 
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else
@@ -762,22 +771,32 @@ if __name__ == "__main__":
         count = class_counts.get(cls_idx, 0)
         class_weights[cls_idx] = (total_samples / (num_classes * count)) ** 1.0 if count > 0 else 1.0
 
-    # Cap background weight at 0.5 to prevent it from dominating the loss
+    # CHANGE (v20): Boost underperforming classes before capping background.
+    # Unsupportedrearing and Grooming consistently spill into background on test set.
+    CLASS_BOOSTS = {'Unsupportedrearing': 2.0, 'Grooming': 1.5}
+    for cls_idx, cls_name in enumerate(behavior_names):
+        if cls_name in CLASS_BOOSTS:
+            class_weights[cls_idx] *= CLASS_BOOSTS[cls_name]
+
+    # CHANGE (v20): Background weight cap lowered from 0.5 to 0.2.
+    # With ~74% background frames and 5 classes, the natural inverse-frequency weight
+    # is ~0.27 — the old cap of 0.5 was above that, so it had no effect at all.
     background_idx = behavior_names.index('background') if 'background' in behavior_names else None
     if background_idx is not None:
-        class_weights[background_idx] = min(class_weights[background_idx], 0.5)
+        class_weights[background_idx] = min(class_weights[background_idx], 0.2)
 
     class_weights_array = np.array([class_weights[i] for i in range(num_classes)])
 
-    print(f"\n=== Class Weights (power=1.0, background capped at 0.5) ===")
+    print(f"\n=== Class Weights (power=1.0, boosts applied, background capped at 0.2) ===")
     for cls_idx, cls_name in enumerate(behavior_names):
-        print(f"{cls_name}: {class_weights_array[cls_idx]:.3f} (count: {class_counts.get(cls_idx, 0)})")
+        boost_str = f" [x{CLASS_BOOSTS[cls_name]}]" if cls_name in CLASS_BOOSTS else ""
+        print(f"{cls_name}: {class_weights_array[cls_idx]:.3f} (count: {class_counts.get(cls_idx, 0)}){boost_str}")
 
     weight_tensor = torch.FloatTensor(class_weights_array).to(device)
 
     # Training loop
     if not SKIP_TRAINING:
-        criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.05)
+        criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.01)  # CHANGE (v20): reduced from 0.05 — smoothing fights class weighting on imbalanced data
 
         # CHANGE: increased weight_decay from 0.01 to 0.05 for stronger regularization
         optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.05)

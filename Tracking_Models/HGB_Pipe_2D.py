@@ -412,8 +412,8 @@ plt.tight_layout()
 plt.savefig(f'pipeline_outputs/feature_importances_HGB_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
 plt.close()
 
-# Train second HGB model with only selected features
-print("\nSecond HGB model with selected features...")
+# Train second Tracking_Models model with only selected features
+print("\nSecond Tracking_Models model with selected features...")
 selected_features = feature_importance_df['Feature'].tolist()
 
 HGB_selected_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}_selected_features.pkl"
@@ -428,7 +428,7 @@ if not os.path.isfile(HGB_selected_path):
     print(f"Using best parameters from grid search: {best_clf_params}")
 
     # Create pipeline with selected features using best hyperparameters
-    print(f"Training HGB with {len(selected_features)} selected features...")
+    print(f"Training Tracking_Models with {len(selected_features)} selected features...")
     pipeline_selected = Pipeline([
      ('scaler', StandardScaler()),
      ('classifier', HistGradientBoostingClassifier(

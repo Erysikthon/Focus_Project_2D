@@ -47,7 +47,7 @@ width = 0.2
 
 plt.figure(figsize=(14, 6))
 bars1 = plt.bar(x_pos - 1.5*width, model1_scores, width, label='Current Model', color='#4477AA')
-bars2 = plt.bar(x_pos - 0.5*width, model2_scores, width, label='HGB', color='#66CCEE')
+bars2 = plt.bar(x_pos - 0.5*width, model2_scores, width, label='Tracking_Models', color='#66CCEE')
 bars3 = plt.bar(x_pos + 0.5*width, model3_scores, width, label='LSTM', color='#228833')
 bars4 = plt.bar(x_pos + 1.5*width, model4_scores, width, label='Transformer', color='#EE6677')
 

@@ -550,7 +550,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v20"
+    DATASET_VERSION = "lite_v21"
     VIDEO_FOLDER    = "./data/rotated_videos"
     LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -569,9 +569,9 @@ if __name__ == "__main__":
     CNN_FEATURE_DIM  = 512
     D_MODEL          = 512
     NHEAD            = 8
-    NUM_LAYERS       = 2      # CHANGE: reduced from 3 to 2 to reduce overfitting (v20)
+    NUM_LAYERS       = 3      # CHANGE: reduced from 3 to 2 to reduce overfitting (v20)
     DIM_FEEDFORWARD  = 2048
-    DROPOUT          = 0.4   # CHANGE: increased from 0.3 to 0.4 for stronger regularization (v20)
+    DROPOUT          = 0.3   # CHANGE: increased from 0.3 to 0.4 for stronger regularization (v20)
 
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else

@@ -14,7 +14,7 @@ Changes from v15:
 - Fixed CosineAnnealingLR: now steps per epoch, T_max=NUM_EPOCHS (was stepping per batch)
 - Added data augmentation: horizontal flip only (no brightness/contrast jitter)
 - Increased weight decay from 0.01 to 0.05
-- Reduced default NUM_LAYERS from 4 to 2
+- Reduced default NUM_LAYERS from 4 to 3
 
 Changes from v18 (bg_fix -> v19):
 - Background class weight cap lowered from 0.5 to 0.2 (cap was previously above the
@@ -569,9 +569,9 @@ if __name__ == "__main__":
     CNN_FEATURE_DIM  = 512
     D_MODEL          = 512
     NHEAD            = 8
-    NUM_LAYERS       = 3      # CHANGE: reduced from 3 to 2 to reduce overfitting (v20)
+    NUM_LAYERS       = 3
     DIM_FEEDFORWARD  = 2048
-    DROPOUT          = 0.3   # CHANGE: increased from 0.3 to 0.4 for stronger regularization (v20)
+    DROPOUT          = 0.3
 
     # Device
     device = torch.device("cuda" if torch.cuda.is_available() else

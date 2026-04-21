@@ -20,9 +20,8 @@ Changes from v18 (bg_fix -> v19):
 - Background class weight cap lowered from 0.5 to 0.2 (cap was previously above the
   natural inverse-frequency weight, so it had no effect)
 - Explicit per-class boost multipliers for underperforming classes:
-  Unsupportedrearing x2.0, Grooming x1.5
+  Unsupportedrearing x1.5, Grooming x1.5
 - Label smoothing reduced from 0.05 to 0.01 (was fighting class weighting on imbalanced data)
-- NUM_LAYERS reduced from 3 to 2 to reduce overfitting (train/test F1 gap ~14pts)
 - DROPOUT increased from 0.3 to 0.4 for stronger regularization
 """
 
@@ -57,7 +56,7 @@ class ResBlock2D(nn.Module):
             nn.Conv2d(channels, channels, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
             nn.BatchNorm2d(channels)
         )
-        self.relu = nn.modules.ReLU()
+        self.relu = nn.ReLU()
 
     def forward(self, x):
         return self.relu(x + self.conv_block(x))
@@ -69,7 +68,7 @@ class CNNFeatureExtractor(nn.Module):
     Input: (batch, 1, H, W) - grayscale frames
     Output: (batch, feature_dim) - feature vector per frame
     """
-    def __init__(self, feature_dim : int = 512, res_depth : int = 4):
+    def __init__(self, feature_dim : int = 512, res_depth : int = 4, dropout : float = 0.3):
         super().__init__()
 
         # Initial convolution
@@ -116,7 +115,7 @@ class CNNFeatureExtractor(nn.Module):
             nn.Flatten(),
             nn.Linear(80 * 9 * 4, feature_dim),
             nn.ReLU(),
-            nn.Dropout(0.3)
+            nn.Dropout(dropout)
         )
 
     def forward(self, x):
@@ -178,7 +177,7 @@ class CNNTransformerClassifier(nn.Module):
         super().__init__()
 
         # CNN feature extractor
-        self.cnn = CNNFeatureExtractor(feature_dim=cnn_feature_dim)
+        self.cnn = CNNFeatureExtractor(feature_dim=cnn_feature_dim, dropout=dropout)
 
         # Project CNN features to transformer dimension if needed
         self.feature_projection = nn.Linear(cnn_feature_dim, d_model) if cnn_feature_dim != d_model else nn.Identity()
@@ -344,17 +343,35 @@ class VideoSequenceDataset(Dataset):
 
         frames = np.array(frames, dtype=np.float32)
 
-        # Data augmentation (training only)
-        if self.augment:
+        # Data augmentation (training only).
+        # 25% of sequences pass through completely unaugmented.
+        # Each remaining augmentation fires independently at 50%.
+        if self.augment and np.random.random() > 0.25:
+            # Horizontal flip
             if np.random.random() > 0.5:
                 frames = frames[:, :, ::-1].copy()
-            frames = np.clip(frames + np.random.normal(0, 8, frames.shape).astype(np.float32), 0, 255)
+
+            # Per-frame brightness/contrast jitter
+            if np.random.random() > 0.5:
+                contrast   = np.random.uniform(0.8, 1.2, size=(len(frames), 1, 1)).astype(np.float32)
+                brightness = np.random.uniform(-20.0, 20.0, size=(len(frames), 1, 1)).astype(np.float32)
+                frames = np.clip(frames * contrast + brightness, 0, 255)
+
+            # Additive Gaussian noise
+            if np.random.random() > 0.5:
+                frames = np.clip(frames + np.random.normal(0, 8, frames.shape).astype(np.float32), 0, 255)
 
         # Normalize to [-0.5, 0.5] (inverted, matching VideoDataSet/TCNN convention)
         frames = -(frames / 255.0 - 0.5)
 
         # Add channel dimension: (seq_len, H, W) -> (seq_len, 1, H, W)
         frames = frames[:, np.newaxis, :, :]
+
+        # Frame dropout: zero out ~15% of frames after normalisation.
+        # Fires independently at 50% so some sequences stay fully intact.
+        if self.augment and np.random.random() > 0.5:
+            dropout_mask = np.random.random(len(frames)) < 0.15
+            frames[dropout_mask] = 0.0
 
         return torch.FloatTensor(frames), torch.LongTensor(sequence_labels)
 
@@ -395,7 +412,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     return total_loss / len(dataloader)
 
 
-def evaluate(model, dataloader, device, use_consensus=True, return_per_video=False):
+def evaluate(model, dataloader, device, use_consensus=True, return_per_video=False, background_class=0):
     """
     Evaluate model with per-frame predictions.
 
@@ -468,8 +485,8 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
 
     # Apply postprocessing per video
     for video_id in per_video_data:
-        filtered = apply_min_duration_filter(per_video_data[video_id]['preds'])
-        filtered = apply_gap_fill(filtered)
+        filtered = apply_min_duration_filter(per_video_data[video_id]['preds'], background_class=background_class)
+        filtered = apply_gap_fill(filtered, background_class=background_class)
         per_video_data[video_id]['preds'] = filtered.tolist()
 
     # Reconstruct flat arrays from filtered per-video data
@@ -550,7 +567,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v21"
+    DATASET_VERSION = "lite_v22"
     VIDEO_FOLDER    = "./data/rotated_videos"
     LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -615,7 +632,8 @@ if __name__ == "__main__":
             df = pd.read_csv(lp, nrows=0)
             cols = [c for c in df.columns if c not in ['Unnamed: 0', 'frame']]
             all_behavior_cols.update(cols)
-    behavior_names = sorted(all_behavior_cols)
+    other_classes  = sorted(c for c in all_behavior_cols if c.lower() != 'background')
+    behavior_names = ['background'] + other_classes if any(c.lower() == 'background' for c in all_behavior_cols) else sorted(all_behavior_cols)
 
     num_classes = len(behavior_names)
     print(f"Classes: {behavior_names}")
@@ -773,7 +791,7 @@ if __name__ == "__main__":
 
     # CHANGE (v20): Boost underperforming classes before capping background.
     # Unsupportedrearing and Grooming consistently spill into background on test set.
-    CLASS_BOOSTS = {'Unsupportedrearing': 2.0, 'Grooming': 1.5}
+    CLASS_BOOSTS = {'Unsupportedrearing': 1.5, 'Grooming': 1.5}
     for cls_idx, cls_name in enumerate(behavior_names):
         if cls_name in CLASS_BOOSTS:
             class_weights[cls_idx] *= CLASS_BOOSTS[cls_name]
@@ -821,7 +839,8 @@ if __name__ == "__main__":
             current_lr = optimizer.param_groups[0]['lr']
             print(f"Learning rate: {current_lr:.6f}")
 
-            y_pred, y_true = evaluate(model, epoch_val_loader, device, use_consensus=True)
+            y_pred, y_true = evaluate(model, epoch_val_loader, device, use_consensus=True,
+                                      background_class=background_idx if background_idx is not None else 0)
             val_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
             val_f1  = f1_score(y_true, y_pred, average='macro')
 
@@ -867,7 +886,8 @@ if __name__ == "__main__":
     log("FINAL TRAINING SET EVALUATION")
     log("="*60)
 
-    y_pred_train, y_true_train = evaluate(model, train_eval_loader, device)
+    y_pred_train, y_true_train = evaluate(model, train_eval_loader, device,
+                                          background_class=background_idx if background_idx is not None else 0)
     log("\nClassification Report:")
     log(classification_report(y_true_train, y_pred_train, target_names=behavior_names))
 
@@ -887,7 +907,8 @@ if __name__ == "__main__":
     log("FINAL VALIDATION SET EVALUATION")
     log("="*60)
 
-    y_pred_val, y_true_val = evaluate(model, val_eval_loader, device)
+    y_pred_val, y_true_val = evaluate(model, val_eval_loader, device,
+                                      background_class=background_idx if background_idx is not None else 0)
     log("\nClassification Report:")
     log(classification_report(y_true_val, y_pred_val, target_names=behavior_names))
 
@@ -907,7 +928,8 @@ if __name__ == "__main__":
     log("FINAL TEST SET EVALUATION")
     log("="*60)
 
-    y_pred, y_true, per_video_data = evaluate(model, test_loader, device, return_per_video=True)
+    y_pred, y_true, per_video_data = evaluate(model, test_loader, device, return_per_video=True,
+                                              background_class=background_idx if background_idx is not None else 0)
     log("\nClassification Report:")
     log(classification_report(y_true, y_pred, target_names=behavior_names))
 

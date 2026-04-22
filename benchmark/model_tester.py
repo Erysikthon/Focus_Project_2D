@@ -33,5 +33,15 @@ CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_OLD_MODEL, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
 old_model.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-print(CNN_transformer.pred_behavior_count[5])
-print(CNN_transformer.true_behavior_count[5])
+pred_behaviors = [0, 0, 0, 0, 0]
+true_behaviors = [0, 0, 0, 0, 0]
+
+for dictionary in CNN_transformer.pred_behavior_count:
+    for behavior in range(0, len(CNN_transformer.column_names)):
+        pred_behaviors[behavior] +=  dictionary[behavior]
+for dictionary in CNN_transformer.true_behavior_count:
+    for behavior in range(0, len(CNN_transformer.column_names)):
+        true_behaviors[behavior] +=  dictionary[behavior]
+
+print(pred_behaviors)
+print(true_behaviors)

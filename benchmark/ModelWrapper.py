@@ -96,7 +96,8 @@ class LabelWrapper():
             if behavior != current_behavior:
                 current_behavior = behavior
                 true_behavior_count[behavior] += 1
-            
+    
+        current_behavior = -1
         for behavior in self.pred:
             if behavior != current_behavior:
                 current_behavior = behavior

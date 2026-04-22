@@ -14,10 +14,22 @@ o8o        o888o  `Y8bood8P'  o888bood8P'   o888ooooood8 o888ooooood8          o
             \n\n\n\n\n""")
 
 TEST_VIDEO_IDS  = ['20231123_10min_OFT-BL_4025', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-02-23T10_23_42_shorter', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'BehavioralCamera2023-03-09T12_08_14', 'MBT1-M7', 'T11', 'T15', 'T4', 'T6']
-TRUE_PATH = "./true"
-PREDICTIONS_PATH_HGB = "./predictions/HGB"
-OUTPUT_PATH_HGB = "./output/HGB"
+TRUE_FOLDER = "./true"
+COLUMN_NAMES = {0 : "background", 1 : "Supportedrearing", 2 : "Unsupportedrearing", 3 : "Grooming", 4 : "Digging"}
+OUTPUT_FOLDER = "./output"
+SMOOTHING = "no"
+SMOOTHING_WINDOW = 3
+CONFUSION_MATRIX_NORMALIZE = True
+PREDICTIONS_FOLDER_HGB = "./predictions/HGB"
+PREDICTIONS_FOLDER_CNN_TRANSFORMER = "./predictions/CNN_Transformer"
+PREDICTIONS_FOLDER_OLD_MODEL = "./predictions/old_model"
 
+hgb = ModelWrapper(name = "HGB", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_HGB, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+hgb.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-HGB = ModelWrapper(name = "HGB", test_set = TEST_VIDEO_IDS, predictions_path = PREDICTIONS_PATH_HGB, true_path = TRUE_PATH, output_path = OUTPUT_PATH_HGB)
-HGB.plot_confusion_matrix()
+CNN_transformer = ModelWrapper(name = "CNN Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_CNN_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+
+old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_HGB, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+old_model.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+

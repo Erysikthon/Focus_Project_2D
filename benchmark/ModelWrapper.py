@@ -3,7 +3,7 @@ from utilities import terminal_colors as colors
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay, f1_score
 from smoothing_functions import apply_min_duration_filter, apply_gap_fill
 from typing import Literal, Sequence, Dict
 from CSVReader import csv_read
@@ -36,6 +36,7 @@ class ModelWrapper():
               )
         
         self.count_behaviors()
+        self.compute_f1_scores()
 
     def count_behaviors(self):
         self.true_behavior_count = []
@@ -46,6 +47,19 @@ class ModelWrapper():
             self.true_behavior_count.append(true_count)
             self.pred_behavior_count.append(pred_count)
         
+    def compute_f1_scores(self):
+        labels = list(self.column_names.keys())
+        scores = f1_score(
+            y_true=self.total_true,
+            y_pred=self.total_prediction,
+            labels=labels,
+            average=None,
+            zero_division=0,
+        )
+        self.f1_scores = {self.column_names[label]: round(float(score), 4) for label, score in zip(labels, scores)}
+        print(colors.WARNING + f"{self.name} F1 scores:\n" +
+              "".join(colors.CYAN + f"   {beh}: " + colors.ENDC + f"{score}\n" for beh, score in self.f1_scores.items()))
+
     def plot_confusion_matrix(self, normalize : bool = True):
 
         labelnames = ("Background", "Supported Rearing", "Unsupported Rearing", "Grooming", "Digging")

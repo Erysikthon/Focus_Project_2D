@@ -23,6 +23,9 @@ Changes from v18 (bg_fix -> v19):
   Unsupportedrearing x1.5, Grooming x1.5
 - Label smoothing reduced from 0.05 to 0.01 (was fighting class weighting on imbalanced data)
 - DROPOUT increased from 0.3 to 0.4 for stronger regularization
+
+Changes from v22
+- removed frame dropout
 """
 
 import torch
@@ -240,7 +243,7 @@ class VideoSequenceDataset(Dataset):
     """
     Lazy-loading dataset for video sequences (loads frames on-demand to save memory).
     Returns per-frame labels for behavior classification.
-    Augmentation (horizontal flip only) applied during training.
+    Augmentation applied during training.
     """
     def __init__(self, video_folder, label_folder, video_ids, sequence_length=30,
                  stride=10, img_size=(76, 142), behavior_names=None, augment=False):
@@ -366,12 +369,6 @@ class VideoSequenceDataset(Dataset):
 
         # Add channel dimension: (seq_len, H, W) -> (seq_len, 1, H, W)
         frames = frames[:, np.newaxis, :, :]
-
-        # Frame dropout: zero out ~15% of frames after normalisation.
-        # Fires independently at 50% so some sequences stay fully intact.
-        if self.augment and np.random.random() > 0.5:
-            dropout_mask = np.random.random(len(frames)) < 0.15
-            frames[dropout_mask] = 0.0
 
         return torch.FloatTensor(frames), torch.LongTensor(sequence_labels)
 
@@ -567,7 +564,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v22"
+    DATASET_VERSION = "lite_v23"
     VIDEO_FOLDER    = "./data/rotated_videos"
     LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -625,15 +622,18 @@ if __name__ == "__main__":
     print(f"Test IDs: {test_video_ids}")
 
     # Get behavior class names
-    all_behavior_cols = set()
+    behavior_names = None
     for vid in all_video_ids:
         lp = os.path.join(LABEL_FOLDER, f"{vid}.csv")
         if os.path.exists(lp):
             df = pd.read_csv(lp, nrows=0)
             cols = [c for c in df.columns if c not in ['Unnamed: 0', 'frame']]
-            all_behavior_cols.update(cols)
-    other_classes  = sorted(c for c in all_behavior_cols if c.lower() != 'background')
-    behavior_names = ['background'] + other_classes if any(c.lower() == 'background' for c in all_behavior_cols) else sorted(all_behavior_cols)
+            if behavior_names is None:
+                behavior_names = cols
+            break  # column order is consistent across CSVs
+    assert behavior_names is not None, "No label CSVs found"
+    assert behavior_names[0].lower() == 'background', \
+        f"Expected background at index 0, got: {behavior_names[0]}"
 
     num_classes = len(behavior_names)
     print(f"Classes: {behavior_names}")

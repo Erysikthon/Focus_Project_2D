@@ -35,6 +35,17 @@ class ModelWrapper():
               colors.CYAN +"   SMOOTHING WINDOW = " + colors.ENDC + f"{smoothing_window}\n"
               )
         
+        self.count_behaviors()
+
+    def count_behaviors(self):
+        self.true_behavior_count = []
+        self.pred_behavior_count = []
+        for label_wrapper in self.label_wrappers:
+            label_wrapper : LabelWrapper
+            true_count, pred_count = label_wrapper.get_behavior_count()
+            self.true_behavior_count.append(true_count)
+            self.pred_behavior_count.append(pred_count)
+        
     def plot_confusion_matrix(self, normalize : bool = True):
 
         labelnames = ("Background", "Supported Rearing", "Unsupported Rearing", "Grooming", "Digging")
@@ -65,6 +76,7 @@ class ModelWrapper():
 class LabelWrapper():
     def __init__(self, total_prediction_file_path : str, total_true_file_path : tuple[str], column_names : Dict[str, int], smoothing : Literal["gap", "py3r", "no"], smoothing_window : int = 5):
         self.true, self.pred = csv_read(true_path = total_true_file_path,  pred_path = total_prediction_file_path, cut_and_pad = True, column_names = column_names)
+        self.column_names = column_names
 
         if smoothing == "gap":
             self.pred = apply_min_duration_filter(self.pred, min_duration = smoothing_window)
@@ -74,4 +86,20 @@ class LabelWrapper():
         if smoothing == "py3r":
             raise KeyError("py3r smoothing COMING SOON")
         
+    def get_behavior_count(self):
+
+        true_behavior_count = {0 : 0, 1 : 0, 2 : 0, 3 : 0, 4 : 0}
+        pred_behavior_count = {0 : 0, 1 : 0, 2 : 0, 3 : 0, 4 : 0}
+
+        current_behavior = -1
+        for behavior in self.true:
+            if behavior != current_behavior:
+                current_behavior = behavior
+                true_behavior_count[behavior] += 1
+            
+        for behavior in self.pred:
+            if behavior != current_behavior:
+                current_behavior = behavior
+                pred_behavior_count[behavior] += 1
         
+        return true_behavior_count, pred_behavior_count

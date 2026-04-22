@@ -30,6 +30,8 @@ hgb.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 CNN_transformer = ModelWrapper(name = "CNN Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_CNN_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
 CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_HGB, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_OLD_MODEL, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
 old_model.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
+print(CNN_transformer.pred_behavior_count[5])
+print(CNN_transformer.true_behavior_count[5])

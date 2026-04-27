@@ -55,14 +55,14 @@ print(true_behaviors)
 from plots import plot_instance_count_scatter
 
 plot_instance_count_scatter(
-    model_wrappers=[old_model,hgb , CNN_transformer],
+    model_wrappers=[old_model, hgb , TCNN,  CNN_transformer],
     output_path="./output/instance_count_scatter.png"
 )
 
 # F1 plot
 from plots import plot_f1_scores
 
-plot_f1_scores(model_wrappers = [old_model, hgb, CNN_transformer], output_path="output/f1_scores.png")
+plot_f1_scores(model_wrappers = [old_model, hgb, TCNN, CNN_transformer], output_path="output/f1_scores.png")
 
 # Computing time
 from plots import plot_computing_times
@@ -72,10 +72,12 @@ plot_computing_times(output_path="./output/computing_time.png")
 # Prediction Video
 from create_video import annotate_video_with_predictions
 
-annotate_video_with_predictions(
-    video_path="./videos/T6.mp4",
-    predictions=CNN_transformer.label_wrappers[9].pred,
-    output_path="./output/annotated_videos/T6_annotated.mp4",
-    true_labels=CNN_transformer.label_wrappers[9].true,
-    column_names=COLUMN_NAMES
-)
+for model in [old_model, hgb, TCNN, CNN_transformer]:
+    for idx, video_id in enumerate(TEST_VIDEO_IDS):
+        annotate_video_with_predictions(
+            video_path=f"./videos/{video_id}.mp4",
+            predictions=model.label_wrappers[idx].pred,
+            output_path=f"./output/annotated_videos/{video_id}_{model.name.replace(' ', '_')}_annotated.mp4",
+            true_labels=model.label_wrappers[idx].true,
+            column_names=COLUMN_NAMES,
+        )

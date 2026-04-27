@@ -74,4 +74,5 @@ annotate_video_with_predictions(
     predictions=CNN_transformer.label_wrappers[9].pred,
     output_path="./output/annotated_videos/T6_annotated.mp4",
     true_labels=CNN_transformer.label_wrappers[9].true,
+    column_names=COLUMN_NAMES
 )

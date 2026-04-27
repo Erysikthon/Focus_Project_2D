@@ -4,7 +4,7 @@ from tqdm import tqdm
 from utilities import terminal_colors as colors
 
 
-def annotate_video_with_predictions(video_path, predictions, output_path, frame_offset=0, true_labels=None):
+def annotate_video_with_predictions(video_path, predictions, output_path, frame_offset=0, true_labels=None, column_names=None):
     """
     frame_offset
         Starting frame number --> predictions start from frame 15
@@ -34,6 +34,7 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
             # Get prediction for current frame
             if frame_idx >= frame_offset and pred_idx < len(predictions):
                 prediction = predictions.iloc[pred_idx] if predictions.ndim == 1 else predictions.iloc[pred_idx, 0]
+                pred_display = column_names[prediction] if column_names else prediction
 
                 # Configure text appearance (adapted for 70x150)
                 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -43,12 +44,13 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
                 # Determine color based on match with true label
                 if true_labels is not None and pred_idx < len(true_labels):
                     true_label = true_labels.iloc[pred_idx] if true_labels.ndim == 1 else true_labels.iloc[pred_idx, 0]
+                    true_display = column_names[true_label] if column_names else true_label
                     color = (0, 255, 0) if prediction == true_label else (0, 0, 255)
                 else:
                     color = (0, 255, 0)
 
                 # Add prediction text
-                pred_text = f"Pred: {prediction}"
+                pred_text = f"Pred: {pred_display}"
                 (text_width, text_height), _ = cv2.getTextSize(
                     pred_text, font, font_scale, thickness
                 )
@@ -62,7 +64,7 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
 
                 # Add true label if available
                 if true_labels is not None and pred_idx < len(true_labels):
-                    true_text = f"True: {true_label}"
+                    true_text = f"True: {true_display}"
                     (text_width3, text_height3), _ = cv2.getTextSize(
                         true_text, font, font_scale, thickness
                     )

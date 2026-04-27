@@ -72,12 +72,12 @@ def features_2d(features_collection : FeaturesCollection,
         boundary = DynamicBoundary(["tl", "tr", "bl", "br"])
         features_collection.each.distance_to_boundary(point, boundary).store()
 
-    ############################################### Missing data handling
+    ############################################### Missing videos handling
 
     if f_b_fill:
-        print("Missing data filling (forward/backward)...")
+        print("Missing videos filling (forward/backward)...")
 
-        # Forward fill then backward fill missing data
+        # Forward fill then backward fill missing videos
         for file in features_collection.keys():
             feature_obj = features_collection[file]
             df = feature_obj.data

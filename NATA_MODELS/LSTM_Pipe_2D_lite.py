@@ -39,7 +39,7 @@ label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VE
 
 if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
-    # Load 2D tracking data (single camera, no triangulation)
+    # Load 2D tracking videos (single camera, no triangulation)
     from py3r.behaviour.tracking.tracking import Tracking
     from py3r.behaviour.features.features_collection import FeaturesCollection
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
@@ -77,7 +77,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
         tracking.data.columns = [col.replace('.conf', '.likelihood') if '.conf' in col else col
                                  for col in tracking.data.columns]
 
-        # Drop only z-coordinates (keep all x,y data from all sources)
+        # Drop only z-coordinates (keep all x,y videos from all sources)
         cols_to_drop = [col for col in tracking.data.columns if '.z' in col]
         if cols_to_drop:
             tracking.data = tracking.data.drop(columns=cols_to_drop)
@@ -707,7 +707,7 @@ else:
         columns=[y_test.name] if isinstance(y_test, pd.Series) else y_test.columns
     )
 
-    # Load scaler and scale data
+    # Load scaler and scale videos
     scaler = joblib.load(scaler_path)
     X_train_scaled = pd.DataFrame(
         scaler.transform(X_train),

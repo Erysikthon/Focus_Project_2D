@@ -48,7 +48,7 @@ model_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}.pkl"
 
 if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
-    # Load 2D tracking data (single camera, no triangulation)
+    # Load 2D tracking videos (single camera, no triangulation)
     from py3r.behaviour.tracking.tracking import Tracking
     from py3r.behaviour.features.features_collection import FeaturesCollection
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
@@ -88,7 +88,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
         required_columns = ['tr.x', 'tr.y', 'tl.x', 'tl.y', 'br.x', 'br.y', 'bl.x', 'bl.y']
         if not all(col in tracking.data.columns for col in required_columns):
             videos_to_remove.append(video_id)
-            print(f"Warning: Video {video_id} missing OFT corner data - will be excluded")
+            print(f"Warning: Video {video_id} missing OFT corner videos - will be excluded")
             print(f"  Available columns: {[col for col in tracking.data.columns if any(x in col for x in ['tr', 'tl', 'br', 'bl'])]}")
 
     for video_id in videos_to_remove:
@@ -273,7 +273,7 @@ if not os.path.isfile(model_path):
     y_val   = np.array(y_val.values).ravel()
     y_test  = np.array(y_test.values).ravel()
 
-    # Calculate class weights for multi-class imbalanced data
+    # Calculate class weights for multi-class imbalanced videos
     unique, counts = np.unique(y_train, return_counts=True)
     class_counts = dict(zip(unique, counts))
     print(f"Class distribution in training: {class_counts}")

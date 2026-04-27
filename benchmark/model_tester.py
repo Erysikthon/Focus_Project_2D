@@ -23,6 +23,7 @@ CONFUSION_MATRIX_NORMALIZE = True
 PREDICTIONS_FOLDER_HGB = "./predictions/HGB"
 PREDICTIONS_FOLDER_CNN_TRANSFORMER = "./predictions/CNN_Transformer"
 PREDICTIONS_FOLDER_OLD_MODEL = "./predictions/old_model"
+PREDICTIONS_FOLDER_TCNN = "./predictions/TCNN"
 
 old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_OLD_MODEL, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
 old_model.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
@@ -33,6 +34,8 @@ hgb.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 CNN_transformer = ModelWrapper(name = "CNN Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_CNN_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
 CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
+TCNN = ModelWrapper(name = "TCNN", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TCNN, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+TCNN.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
 # How to see total instance count
 pred_behaviors = [0, 0, 0, 0, 0]

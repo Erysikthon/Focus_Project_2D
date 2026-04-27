@@ -75,7 +75,7 @@ def plot_confusion_matrix(y_true, y_pred, behaviors : dict, output_path : str):
             xticklabels=behavior_names,   # Label x-axis with class names in correct order
             yticklabels=behavior_names,   # Label y-axis with class names in correct order
             cbar_kws={'label': 'Proportion'},
-            vmin = 0, vmax = 1
+
         )
         plt.title('Confusion Matrix ', fontsize=16, fontweight='bold')
         plt.ylabel('True Label', fontsize=12, labelpad=15)

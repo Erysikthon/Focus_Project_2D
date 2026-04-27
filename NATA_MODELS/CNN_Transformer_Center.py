@@ -12,7 +12,7 @@ Output: Behavior classification per frame
 Changes from v15:
 - Simplified classifier head (single linear layer + dropout) to reduce overfitting
 - Fixed CosineAnnealingLR: now steps per epoch, T_max=NUM_EPOCHS (was stepping per batch)
-- Added videos augmentation: horizontal flip only (no brightness/contrast jitter)
+- Added data augmentation: horizontal flip only (no brightness/contrast jitter)
 - Increased weight decay from 0.01 to 0.05
 - Reduced default NUM_LAYERS from 4 to 3
 
@@ -21,11 +21,47 @@ Changes from v18 (bg_fix -> v19):
   natural inverse-frequency weight, so it had no effect)
 - Explicit per-class boost multipliers for underperforming classes:
   Unsupportedrearing x1.5, Grooming x1.5
-- Label smoothing reduced from 0.05 to 0.01 (was fighting class weighting on imbalanced videos)
+- Label smoothing reduced from 0.05 to 0.01 (was fighting class weighting on imbalanced data)
 - DROPOUT increased from 0.3 to 0.4 for stronger regularization
 
 Changes from v22
 - removed frame dropout
+
+Changes from v23 (-> v24):
+- Training stride changed from 10 to 5 — more gradient signal per epoch
+- Final evaluation uses stride=1 with center-frame prediction instead of
+  overlapping windows + consensus voting. Every frame gets exactly one
+  prediction (the window where it is the center), so no aggregation is needed
+  and postprocessing operates cleanly in frame space.
+- Epoch-level validation retains stride=10 + consensus (fast signal only).
+- evaluate() gains a center_only parameter. When True, only the prediction for
+  the middle frame of each window is recorded, and the frame key is the center
+  frame index rather than iterating over all offsets. Consensus voting and the
+  associated accumulation loop are skipped entirely in this mode.
+- VideoSequenceDataset._index_sequences: the label stored in self.labels for
+  each sequence is now always the CENTER frame label (seq_len//2 offset),
+  regardless of stride. Previously it was the first-frame label.
+- FINAL_EVAL_STRIDE removed from config (replaced by FINAL_EVAL_STRIDE=1).
+- DATASET_VERSION bumped to lite_v24.
+
+Changes from v24 (-> v25):
+- CENTER_WINDOW_SIZE added as a hyperparameter (default 5, set to 1 for the
+  original single-frame behavior). Controls how many frames around the sequence
+  midpoint are used for both training loss and final evaluation predictions.
+  With TRAIN_STRIDE=5 and CENTER_WINDOW_SIZE=5 the prediction zones tile the
+  video exactly with no overlap and no gaps.
+- train_epoch: loss is now computed over only the center window
+  (seq_len//2 - half : seq_len//2 + half + odd_pad) instead of all seq_len
+  frames. This focuses the gradient on the frames the model will also predict
+  at inference, and avoids supervising edge frames that have less symmetric
+  temporal context.
+- evaluate(center_only=True): now records predictions for all CENTER_WINDOW_SIZE
+  center frames rather than just the single middle frame. The frame key range is
+  [start_frame + center_start, start_frame + center_end).
+- _index_sequences: self.labels entry is still the single middle frame label
+  (used for WeightedRandomSampler compatibility); the full center-window labels
+  are consumed at training time via the returned sequence_labels tensor.
+- DATASET_VERSION bumped to lite_v25.
 """
 
 import torch
@@ -312,10 +348,11 @@ class VideoSequenceDataset(Dataset):
             total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
             cap.release()
 
+            center_offset = self.sequence_length // 2
             for start_idx in range(0, min(total_frames, len(video_labels)) - self.sequence_length + 1, self.stride):
-                first_frame_label = video_labels[start_idx]
+                center_label = video_labels[start_idx + center_offset]
                 self.sequence_info.append((video_id, start_idx))
-                self.labels.append(first_frame_label)
+                self.labels.append(center_label)
 
         print(f"Indexed {len(self.sequence_info)} sequences (per-frame labels)")
 
@@ -377,13 +414,25 @@ class VideoSequenceDataset(Dataset):
 # Training and Evaluation Functions
 # ============================================================================
 
-def train_epoch(model, dataloader, criterion, optimizer, device):
+def train_epoch(model, dataloader, criterion, optimizer, device, center_window_size=5):
     """
-    Train for one epoch with per-frame predictions.
-    CHANGE: scheduler removed from here — now stepped per epoch in the main loop.
+    Train for one epoch.
+
+    Loss is computed only over the CENTER_WINDOW_SIZE frames at the middle of
+    each sequence. This aligns training supervision with the frames that will
+    actually be predicted at inference, and avoids penalising edge positions
+    that have less symmetric temporal context.
+
+    center_window_size=1 reproduces the original single-center-frame behavior.
     """
     model.train()
     total_loss = 0
+
+    seq_len = dataloader.dataset.sequence_length
+    half    = center_window_size // 2
+    # For odd window sizes the extra frame goes to the right of center
+    center_start = seq_len // 2 - half
+    center_end   = center_start + center_window_size   # exclusive
 
     for batch_X, batch_y in tqdm(dataloader, desc="Training"):
         batch_X = batch_X.to(device)
@@ -392,10 +441,13 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         optimizer.zero_grad()
         outputs = model(batch_X)  # (batch, seq_len, num_classes)
 
-        # Reshape for loss computation
-        batch_size, seq_len, num_classes = outputs.shape
-        outputs_flat = outputs.view(batch_size * seq_len, num_classes)
-        labels_flat  = batch_y.view(batch_size * seq_len)
+        # Slice to center window only: (batch, center_window_size, num_classes)
+        center_outputs = outputs[:, center_start:center_end, :]
+        center_labels  = batch_y[:, center_start:center_end]
+
+        batch_size, win_size, num_classes = center_outputs.shape
+        outputs_flat = center_outputs.reshape(batch_size * win_size, num_classes)
+        labels_flat  = center_labels.reshape(batch_size * win_size)
 
         loss = criterion(outputs_flat, labels_flat)
         loss.backward()
@@ -409,42 +461,39 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     return total_loss / len(dataloader)
 
 
-def evaluate(model, dataloader, device, use_consensus=True, return_per_video=False, background_class=0):
+def evaluate(model, dataloader, device, center_window_size=5,
+             return_per_video=False, background_class=0):
     """
-    Evaluate model with per-frame predictions.
+    Evaluate model using center-window prediction.
 
-    Arguments:
-        use_consensus: If True, uses majority voting across overlapping sequences for each unique frame.
-                       If False, treats all predictions independently.
+    Records predictions for the center_window_size frames at the middle of each
+    window. With dataset stride == center_window_size every frame is predicted
+    exactly once — no aggregation or consensus voting needed. Postprocessing
+    (min-duration filter + gap fill) runs directly on the resulting per-video
+    frame sequences.
+
+    center_window_size: How many center frames to predict per window.
+                        Set to 1 for single-frame behavior.
     """
     model.eval()
 
-    if not use_consensus:
-        all_preds  = []
-        all_labels = []
-        with torch.no_grad():
-            for batch_X, batch_y in tqdm(dataloader, desc="Evaluating"):
-                batch_X = batch_X.to(device)
-                outputs = model(batch_X)
-                _, predicted = torch.max(outputs, 2)
-                all_preds.extend(predicted.cpu().numpy().flatten())
-                all_labels.extend(batch_y.numpy().flatten())
-        return np.array(all_preds), np.array(all_labels)
-
     from collections import defaultdict
 
-    frame_predictions = defaultdict(list)
-    frame_labels      = {}
+    seq_len      = dataloader.dataset.sequence_length
+    half         = center_window_size // 2
+    center_start = seq_len // 2 - half
+    center_end   = center_start + center_window_size   # exclusive
+
+    frame_preds  = {}
+    frame_labels = {}
 
     with torch.no_grad():
-        # CHANGE: track global sequence index explicitly to avoid batch-size assumption
         seq_idx_offset = 0
-        for batch_X, batch_y in tqdm(dataloader, desc="Evaluating"):
+        for batch_X, batch_y in tqdm(dataloader, desc=f"Evaluating (center-{center_window_size})"):
             batch_X   = batch_X.to(device)
-            outputs   = model(batch_X)
-            probs     = torch.softmax(outputs, dim=2)
+            outputs   = model(batch_X)   # (batch, seq_len, num_classes)
 
-            probs_np  = probs.cpu().numpy()
+            probs_np  = torch.softmax(outputs, dim=2).cpu().numpy()
             labels_np = batch_y.numpy()
 
             actual_batch_size = batch_X.shape[0]
@@ -455,49 +504,43 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
 
                 video_id, start_frame = dataloader.dataset.sequence_info[seq_idx]
 
-                for frame_offset in range(dataloader.dataset.sequence_length):
-                    frame_idx = start_frame + frame_offset
-                    key       = (video_id, frame_idx)
-
-                    frame_predictions[key].append(probs_np[b, frame_offset])
-                    frame_labels[key] = labels_np[b, frame_offset]
+                for offset in range(center_start, center_end):
+                    frame_idx          = start_frame + offset
+                    key                = (video_id, frame_idx)
+                    frame_preds[key]   = int(np.argmax(probs_np[b, offset]))
+                    frame_labels[key]  = int(labels_np[b, offset])
 
             seq_idx_offset += actual_batch_size
 
-    # Consensus voting
-    consensus_preds  = []
-    consensus_labels = []
-    per_video_data   = defaultdict(lambda: {'preds': [], 'labels': []})
-
-    for key in sorted(frame_predictions.keys()):
-        video_id, frame_idx = key
-        preds          = frame_predictions[key]
-        consensus_pred = np.argmax(np.sum(preds, axis=0))
-
-        consensus_preds.append(consensus_pred)
-        consensus_labels.append(frame_labels[key])
-
-        per_video_data[video_id]['preds'].append(consensus_pred)
+    # Build per-video arrays in frame order, apply postprocessing
+    per_video_data = defaultdict(lambda: {'preds': [], 'labels': []})
+    for key in sorted(frame_preds.keys()):
+        video_id, _ = key
+        per_video_data[video_id]['preds'].append(frame_preds[key])
         per_video_data[video_id]['labels'].append(frame_labels[key])
 
-    # Apply postprocessing per video
     for video_id in per_video_data:
-        filtered = apply_min_duration_filter(per_video_data[video_id]['preds'], background_class=background_class)
+        filtered = apply_min_duration_filter(per_video_data[video_id]['preds'],
+                                             background_class=background_class)
         filtered = apply_gap_fill(filtered, background_class=background_class)
         per_video_data[video_id]['preds'] = filtered.tolist()
 
-    # Reconstruct flat arrays from filtered per-video videos
+    # Rebuild flat arrays from postprocessed per-video data
     video_frame_counters = defaultdict(int)
-    consensus_preds = []
-    for key in sorted(frame_predictions.keys()):
+    flat_preds  = []
+    flat_labels = []
+    for key in sorted(frame_preds.keys()):
         video_id, _ = key
         i = video_frame_counters[video_id]
-        consensus_preds.append(per_video_data[video_id]['preds'][i])
+        flat_preds.append(per_video_data[video_id]['preds'][i])
+        flat_labels.append(frame_labels[key])
         video_frame_counters[video_id] += 1
 
     if return_per_video:
-        return np.array(consensus_preds), np.array(consensus_labels), dict(per_video_data)
-    return np.array(consensus_preds), np.array(consensus_labels)
+        return np.array(flat_preds), np.array(flat_labels), dict(per_video_data)
+    return np.array(flat_preds), np.array(flat_labels)
+
+
 
 
 def apply_min_duration_filter(preds, min_duration=5, background_class=0):
@@ -564,17 +607,22 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v23"
-    VIDEO_FOLDER    = "./videos/rotated_videos"
-    LABEL_FOLDER    = "./videos/labels"
+    DATASET_VERSION = "center_v1"
+    VIDEO_FOLDER    = "./data/rotated_videos"
+    LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output/cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
     # Hyperparameters
     SEQUENCE_LENGTH    = 30
-    TRAIN_STRIDE       = 10
-    EPOCH_EVAL_STRIDE  = 10
-    FINAL_EVAL_STRIDE  = 5
+    TRAIN_STRIDE       = 5   # must equal CENTER_WINDOW_SIZE for gap-free tiling
+    EPOCH_EVAL_STRIDE  = 5   # must equal CENTER_WINDOW_SIZE for gap-free tiling
+    FINAL_EVAL_STRIDE  = 5   # must equal CENTER_WINDOW_SIZE for gap-free tiling
+
+    # Number of center frames predicted per window (for both training loss and
+    # final evaluation). Set to 1 to revert to the original single-frame behavior.
+    # With TRAIN_STRIDE == CENTER_WINDOW_SIZE no overlaps, no gaps.
+    CENTER_WINDOW_SIZE = 5
     IMG_SIZE           = (76, 142)
     BATCH_SIZE         = 32
     NUM_EPOCHS         = 100
@@ -659,7 +707,7 @@ if __name__ == "__main__":
     )
     print(f"Epoch val dataset: {len(epoch_val_dataset)} sequences")
 
-    print(f"\nCreating final eval datasets (stride={FINAL_EVAL_STRIDE})...")
+    print(f"\nCreating final eval datasets (stride={FINAL_EVAL_STRIDE}, center-{CENTER_WINDOW_SIZE} prediction)...")
     train_eval_dataset = VideoSequenceDataset(
         VIDEO_FOLDER, LABEL_FOLDER, train_video_ids,
         SEQUENCE_LENGTH, FINAL_EVAL_STRIDE, IMG_SIZE,
@@ -814,7 +862,7 @@ if __name__ == "__main__":
 
     # Training loop
     if not SKIP_TRAINING:
-        criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.01)  # CHANGE (v20): reduced from 0.05 — smoothing fights class weighting on imbalanced videos
+        criterion = nn.CrossEntropyLoss(weight=weight_tensor, label_smoothing=0.01)  # CHANGE (v20): reduced from 0.05 — smoothing fights class weighting on imbalanced data
 
         # CHANGE: increased weight_decay from 0.01 to 0.05 for stronger regularization
         optimizer = optim.AdamW(model.parameters(), lr=LEARNING_RATE, weight_decay=0.05)
@@ -831,7 +879,8 @@ if __name__ == "__main__":
         for epoch in range(NUM_EPOCHS):
             print(f"\nEpoch [{epoch+1}/{NUM_EPOCHS}]")
 
-            train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
+            train_loss = train_epoch(model, train_loader, criterion, optimizer, device,
+                                     center_window_size=CENTER_WINDOW_SIZE)
 
             # CHANGE: step scheduler once per epoch after train_epoch
             scheduler.step()
@@ -839,13 +888,14 @@ if __name__ == "__main__":
             current_lr = optimizer.param_groups[0]['lr']
             print(f"Learning rate: {current_lr:.6f}")
 
-            y_pred, y_true = evaluate(model, epoch_val_loader, device, use_consensus=True,
+            y_pred, y_true = evaluate(model, epoch_val_loader, device,
+                                      center_window_size=CENTER_WINDOW_SIZE,
                                       background_class=background_idx if background_idx is not None else 0)
             val_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
             val_f1  = f1_score(y_true, y_pred, average='macro')
 
             print(f"Train Loss: {train_loss:.4f}")
-            print(f"Val Acc (consensus): {val_acc:.2f}%, Val F1 (consensus): {val_f1:.4f}")
+            print(f"Val Acc: {val_acc:.2f}%, Val F1: {val_f1:.4f}")
 
             if val_f1 > best_f1:
                 best_f1 = val_f1
@@ -887,6 +937,7 @@ if __name__ == "__main__":
     log("="*60)
 
     y_pred_train, y_true_train = evaluate(model, train_eval_loader, device,
+                                          center_window_size=CENTER_WINDOW_SIZE,
                                           background_class=background_idx if background_idx is not None else 0)
     log("\nClassification Report:")
     log(classification_report(y_true_train, y_pred_train, target_names=behavior_names))
@@ -908,6 +959,7 @@ if __name__ == "__main__":
     log("="*60)
 
     y_pred_val, y_true_val = evaluate(model, val_eval_loader, device,
+                                      center_window_size=CENTER_WINDOW_SIZE,
                                       background_class=background_idx if background_idx is not None else 0)
     log("\nClassification Report:")
     log(classification_report(y_true_val, y_pred_val, target_names=behavior_names))
@@ -928,7 +980,9 @@ if __name__ == "__main__":
     log("FINAL TEST SET EVALUATION")
     log("="*60)
 
-    y_pred, y_true, per_video_data = evaluate(model, test_loader, device, return_per_video=True,
+    y_pred, y_true, per_video_data = evaluate(model, test_loader, device,
+                                              center_window_size=CENTER_WINDOW_SIZE,
+                                              return_per_video=True,
                                               background_class=background_idx if background_idx is not None else 0)
     log("\nClassification Report:")
     log(classification_report(y_true, y_pred, target_names=behavior_names))

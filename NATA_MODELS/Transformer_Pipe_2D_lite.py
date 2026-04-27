@@ -29,9 +29,9 @@ start = time.time()
 # Define dataset version
 DATASET_VERSION = "Transformer"
 
-X_path = f"./pipeline_saved_processes/dataframes/X_everything.csv"
-X_filtered_path = f"./pipeline_saved_processes/dataframes/X_everything_filtered.csv"
-y_path = f"./pipeline_saved_processes/dataframes/y_everything.csv"
+X_path = f"./pipeline_saved_processes/dataframes/X.csv"
+X_filtered_path = f"./pipeline_saved_processes/dataframes/X_filtered.csv"
+y_path = f"./pipeline_saved_processes/dataframes/y.csv"
 model_path = f"pipeline_saved_processes/models/Transformer_{DATASET_VERSION}.pth"
 scaler_path = f"pipeline_saved_processes/models/scaler_{DATASET_VERSION}.pkl"
 label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VERSION}.pkl"
@@ -40,7 +40,7 @@ label_encoder_path = f"pipeline_saved_processes/models/label_encoder_{DATASET_VE
 
 if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
-    # Load 2D tracking data (single camera, no triangulation)
+    # Load 2D tracking videos (single camera, no triangulation)
     from py3r.behaviour.tracking.tracking import Tracking
     from py3r.behaviour.features.features_collection import FeaturesCollection
     from py3r.behaviour.tracking.tracking_collection import TrackingCollection
@@ -111,7 +111,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
         required_columns = ['tr.x', 'tr.y', 'tl.x', 'tl.y', 'br.x', 'br.y', 'bl.x', 'bl.y']
         if not all(col in tracking.data.columns for col in required_columns):
             videos_to_remove.append(video_id)
-            print(f"Warning: Video {video_id} missing OFT corner data - will be excluded")
+            print(f"Warning: Video {video_id} missing OFT corner videos - will be excluded")
             print(f"  Available columns: {[col for col in tracking.data.columns if any(x in col for x in ['tr', 'tl', 'br', 'bl'])]}")
 
     for video_id in videos_to_remove:
@@ -178,7 +178,7 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                embedding_length=list(range(-15, 16, 1))
                                )
 
-    y = labels(labels_path="./pipeline_inputs/labels",
+    y = labels(labels_path="./data/labels",
                )
 
     print(f"\nBefore drop_non_analyzed_videos: X has {X.index.get_level_values('video_id').nunique()} videos, y has {y.index.get_level_values('video_id').nunique()} videos")
@@ -452,14 +452,14 @@ if not os.path.isfile(model_path):
     # Grid search configuration (32 combinations)
     param_grid = {
         'd_model': [256, 512],
-        'num_layers': [3, 4],
+        'num_layers': [2, 3, 4],
         'nhead': [4, 8],
         'dim_feedforward': [1024],
         'dropout': [0.3],
         'lr': [0.0001, 0.0003],
         'batch_size': [512],
-        'sequence_length': [30, 60],
-        'stride': [5]
+        'sequence_length': [30],
+        'stride': [10]
     }
 
     n_folds = 3  # K-fold cross-validation
@@ -883,7 +883,7 @@ else:
         columns=[y_test.name] if isinstance(y_test, pd.Series) else y_test.columns
     )
 
-    # Load scaler and scale data
+    # Load scaler and scale videos
     scaler = joblib.load(scaler_path)
     X_train_scaled = pd.DataFrame(
         scaler.transform(X_train),
@@ -914,29 +914,39 @@ else:
     print(f"Using device: {device}")
     print(f"Sequence length: {SEQUENCE_LENGTH}")
 
+results_lines = []
+
+def log(line=""):
+    print(line)
+    results_lines.append(line)
+
 # Training set evaluation
-print("\n=== Training Set Evaluation ===")
+log("\n" + "="*60)
+log("FINAL TRAINING SET EVALUATION")
+log("="*60)
 y_pred_train, y_true_train = evaluate(model, train_loader, device)
 
 train_acc = 100 * np.sum(y_pred_train == y_true_train) / len(y_true_train)
-train_f1 = f1_score(y_true_train, y_pred_train, average='macro')
+train_f1  = f1_score(y_true_train, y_pred_train, average='macro')
 
-print(f"Train Accuracy: {train_acc:.2f}%")
-print(f"Train F1 Score (macro): {train_f1:.4f}")
-print("\nTraining Classification Report:")
-print(classification_report(y_true_train, y_pred_train, target_names=label_encoder.classes_))
+log(f"Train Accuracy: {train_acc:.2f}%")
+log(f"Train F1 Score (macro): {train_f1:.4f}")
+log("\nClassification Report:")
+log(classification_report(y_true_train, y_pred_train, target_names=label_encoder.classes_))
 
 # Val set evaluation
-print("\n=== Val Set Evaluation ===")
+log("\n" + "="*60)
+log("FINAL VALIDATION SET EVALUATION")
+log("="*60)
 y_pred_val, y_true_val = evaluate(model, val_loader, device)
 
 val_acc = 100 * np.sum(y_pred_val == y_true_val) / len(y_true_val)
-val_f1 = f1_score(y_true_val, y_pred_val, average='macro')
+val_f1  = f1_score(y_true_val, y_pred_val, average='macro')
 
-print(f"Val Accuracy: {val_acc:.2f}%")
-print(f"Val F1 Score (macro): {val_f1:.4f}")
-print("\nVal Classification Report:")
-print(classification_report(y_true_val, y_pred_val, target_names=label_encoder.classes_))
+log(f"Val Accuracy: {val_acc:.2f}%")
+log(f"Val F1 Score (macro): {val_f1:.4f}")
+log("\nClassification Report:")
+log(classification_report(y_true_val, y_pred_val, target_names=label_encoder.classes_))
 
 cm_val = confusion_matrix(y_true_val, y_pred_val)
 plt.figure(figsize=(10, 8))
@@ -951,19 +961,19 @@ plt.savefig(f'pipeline_outputs/conf_matrix_{DATASET_VERSION}_val.png', dpi=300, 
 plt.close()
 
 # Test set evaluation
-print("\n=== Test Set Evaluation ===")
+log("\n" + "="*60)
+log("FINAL TEST SET EVALUATION")
+log("="*60)
 y_pred, y_true = evaluate(model, test_loader, device)
 
-# Metrics
 test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
-test_f1 = f1_score(y_true, y_pred, average='macro')
+test_f1  = f1_score(y_true, y_pred, average='macro')
 
-print(f"Test Accuracy: {test_acc:.2f}%")
-print(f"Test F1 Score (macro): {test_f1:.4f}")
-print("\nClassification Report:")
-print(classification_report(y_true, y_pred, target_names=label_encoder.classes_))
+log(f"Test Accuracy: {test_acc:.2f}%")
+log(f"Test F1 Score (macro): {test_f1:.4f}")
+log("\nClassification Report:")
+log(classification_report(y_true, y_pred, target_names=label_encoder.classes_))
 
-# Confusion matrix
 cm = confusion_matrix(y_true, y_pred)
 plt.figure(figsize=(10, 8))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
@@ -975,5 +985,10 @@ plt.xlabel('Predicted Label')
 plt.tight_layout()
 plt.savefig(f'pipeline_outputs/conf_matrix_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
 plt.close()
+
+results_path = f'pipeline_outputs/evaluation_{DATASET_VERSION}.txt'
+with open(results_path, 'w') as f:
+    f.write("\n".join(results_lines))
+print(f"\nEvaluation results saved to {results_path}")
 
 print(f"\nTotal time: {time.time() - start:.2f} seconds")

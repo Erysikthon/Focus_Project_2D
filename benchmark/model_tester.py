@@ -49,7 +49,6 @@ print(pred_behaviors)
 print(true_behaviors)
 
 # Scatterplot
-
 from plots import plot_instance_count_scatter
 
 plot_instance_count_scatter(
@@ -58,13 +57,21 @@ plot_instance_count_scatter(
 )
 
 # F1 plot
-
 from plots import plot_f1_scores
 
 plot_f1_scores(model_wrappers = [old_model, hgb, CNN_transformer], output_path="output/f1_scores.png")
 
 # Computing time
-
 from plots import plot_computing_times
 
 plot_computing_times(output_path="./output/computing_time.png")
+
+# Prediction Video
+from create_video import annotate_video_with_predictions
+
+annotate_video_with_predictions(
+    video_path="./videos/T6.mp4",
+    predictions=CNN_transformer.label_wrappers[9].pred,
+    output_path="./output/annotated_videos/T6_annotated.mp4",
+    true_labels=CNN_transformer.label_wrappers[9].true,
+)

@@ -66,14 +66,21 @@ def plot_instance_count_scatter(model_wrappers, output_path):
 
         lim = max_val * 1.1 if max_val > 0 else 1
 
-        # Regression through origin per model
+        # Regression per model (with intercept)
         for model, color in zip(model_wrappers, model_colors):
             sub = beh_df[beh_df['model'] == model.name]
             if len(sub) >= 2:
                 x = sub['predicted'].values.reshape(-1, 1)
-                slope = np.linalg.lstsq(x, sub['true'].values, rcond=None)[0][0]
+
+                # add intercept column
+                X = np.hstack([x, np.ones_like(x)])
+
+                slope, intercept = np.linalg.lstsq(X, sub['true'].values, rcond=None)[0]
+
                 x_range = np.linspace(0, lim, 100)
-                ax.plot(x_range, slope * x_range, color=color, linewidth=1.5, alpha=0.6)
+                ax.plot(x_range, slope * x_range + intercept,
+                        color=color, linewidth=1.5, alpha=0.6)
+
         ax.plot([0, lim], [0, lim], 'k--', alpha=0.35, linewidth=1)
         ax.set_xlim(0, lim)
         ax.set_ylim(0, lim)
@@ -94,6 +101,7 @@ def plot_instance_count_scatter(model_wrappers, output_path):
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
     plt.close()
+
 
 # F1 Scores
 

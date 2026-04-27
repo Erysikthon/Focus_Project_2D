@@ -38,7 +38,7 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
 
                 # Configure text appearance (adapted for 70x150)
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 0.3
+                font_scale = 0.25
                 thickness = 1
 
                 # Determine color based on match with true label
@@ -107,7 +107,7 @@ def annotate_video_with_predictions(video_path, predictions, output_path, frame_
                 cv2.putText(
                     frame, label_text,
                     (5, 15),
-                    font, 0.35, (0, 0, 255), 1
+                    font, 0.25, (0, 0, 255), 1
                 )
 
             # Write frame to output

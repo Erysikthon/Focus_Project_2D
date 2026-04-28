@@ -9,12 +9,7 @@ Architecture:
 Input: Raw video frames from rotated_videos folder
 Output: Behavior classification per frame
 
-Changes from v15:
-- Simplified classifier head (single linear layer + dropout) to reduce overfitting
-- Fixed CosineAnnealingLR: now steps per epoch, T_max=NUM_EPOCHS (was stepping per batch)
-- Added videos augmentation: horizontal flip only (no brightness/contrast jitter)
-- Increased weight decay from 0.01 to 0.05
-- Reduced default NUM_LAYERS from 4 to 3
+
 
 Changes from v18 (bg_fix -> v19):
 - Background class weight cap lowered from 0.5 to 0.2 (cap was previously above the

@@ -45,5 +45,5 @@ class SingleVideoDataset(Dataset):
         X_tensor = torch.from_numpy((-(X/255 - 0.5) * 2).astype(np.float32))
         X_tensor = X_tensor.unsqueeze(0)       #video is of shape [1, T, Y, X]. Where 1 are the channels, and they will grow with Convolutions
         y = self.label.iloc[index, :]              #label is instead of shape [5] = number of classes one hot encoded
-        y_tensor = torch.from_numpy(y.to_numpy().astype(np.float32))
+        y_tensor = torch.tensor(y.to_numpy(), dtype=torch.long).argmax()
         return X_tensor, y_tensor

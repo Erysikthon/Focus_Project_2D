@@ -23,6 +23,33 @@ def triangulate(collection_path: str,
 
     # Initialize smoothing
 
+    smoothing_overrides =[
+        #mouse
+        (['nose'], 'mean', smoothing_mouse),
+        (['headcentre'], 'mean', smoothing_mouse),
+        (['neck'], 'mean', smoothing_mouse),
+        (['earl'], 'mean', smoothing_mouse),
+        (['earr'], 'mean', smoothing_mouse),
+        (['bodycentre'], 'mean', smoothing_mouse),
+        (['bcl'], 'mean', smoothing_mouse),
+        (['bcr'], 'mean', smoothing_mouse),
+        (['hipl'], 'mean', smoothing_mouse),
+        (['hipr'], 'mean', smoothing_mouse),
+        (['tailbase'], 'mean', smoothing_mouse),
+        (['tailcentre'], 'mean', smoothing_mouse),
+        (['tailtip'], 'mean', smoothing_mouse),
+        #oft
+        (['tl'], 'median', smoothing_oft),
+        (['tr'], 'median', smoothing_oft),
+        (['bl'], 'median', smoothing_oft),
+        (['br'], 'median', smoothing_oft),
+        (['top_tl'], 'median', smoothing_oft),
+        (['top_tr'], 'median', smoothing_oft),
+        (['top_bl'], 'median', smoothing_oft),
+        (['top_br'], 'median', smoothing_oft)
+    ]
+
+    '''
     smoothing_dict = {
         # mouse
         "nose": {"window": smoothing_mouse, "type": "mean"},
@@ -49,22 +76,26 @@ def triangulate(collection_path: str,
         "top_br": {"window": smoothing_oft, "type": "median"},
         "top_bl": {"window": smoothing_oft, "type": "median"},
     }
+    '''
+
     if not construction_points == None:
         for handle in construction_points:
             construction_infos = construction_points[handle]
             triangulated_tracking_collection.construction_point(handle, construction_infos["between_points"],
                                                                 dims=("x", "y", "z"))
             if construction_infos["mouse_or_oft"] == "mouse":
-                smoothing_dict[handle] = {"window": smoothing_mouse, "type": "mean"}
+                #smoothing_dict[handle] = {"window": smoothing_mouse, "type": "mean"}
+                smoothing_overrides = smoothing_overrides + [(handle, 'mean', smoothing_mouse)]
             elif construction_infos["mouse_or_oft"] == "oft":
-                smoothing_dict[handle] = {"window": smoothing_oft, "type": "median"}
+                #smoothing_dict[handle] = {"window": smoothing_oft, "type": "median"}
+                smoothing_overrides = smoothing_overrides + [(handle, 'median', smoothing_oft)]
             else:
                 raise ValueError(f"{construction_infos['mouse_or_oft']} only accepts 'mouse' or 'oft' as values")
             print(
                 f"Created construction point {handle} between {construction_infos['between_points']} as {construction_infos['mouse_or_oft']} point")
 
     if smoothing:
-        triangulated_tracking_collection.smooth(smoothing_dict)
+        triangulated_tracking_collection.each.smooth_all(overrides = smoothing_overrides)
 
     features_collection = FeaturesCollection.from_tracking_collection(triangulated_tracking_collection)
 
@@ -74,9 +105,10 @@ def triangulate(collection_path: str,
 
 
 def features(features_collection: FeaturesCollection,
-             distance: dict[tuple: str] = [],
+             distance: set[tuple[str, str]] = [],
+             height_diff: set[tuple[str, str]] = [],
              angle: dict[tuple[str]: str] = [],
-             speed: tuple[str] = [],
+             speed: tuple = [],
              distance_to_boundary: tuple[str] = [],
              is_point_recognized: tuple[str] = [],
              volume: dict[tuple: tuple[tuple]] = [],
@@ -88,8 +120,21 @@ def features(features_collection: FeaturesCollection,
     print("calculating distance...")
 
     for handle in distance:
-        for dim in distance[handle]:
-            features_collection.distance_on_axis(handle[0], handle[1], dim).store()
+        '''for dim in distance[handle]:
+            features_collection.distance_on_axis(handle[0], handle[1], dim).store()'''
+        # why are we doing distances separately on axes?
+        # herein distances calculated both separately on each axis, as well as absolutely in space
+        # feel free to comment/uncomment as needed
+        '''features_collection.each.distance_between(handle[0], handle[1], dims=("x")).store()
+        features_collection.each.distance_between(handle[0], handle[1], dims=("y")).store()
+        features_collection.each.distance_between(handle[0], handle[1], dims=("z")).store()'''
+        features_collection.each.distance_between(handle[0], handle[1], dims=("x", "y", "z")).store()
+
+    # Disntances in z
+    print("calculating height differences...")
+
+    for handle in height_diff:
+        features_collection.each.distance_between(handle[0], handle[1], dims=("z")).store()
 
     # Azimuth / Angles
     print("calculating angles...")
@@ -113,7 +158,7 @@ def features(features_collection: FeaturesCollection,
     print("calculating speed...")
 
     for point in speed:
-        features_collection.speed(point, dims=("x", "y", "z")).store()
+        features_collection.each.speed(point, dims=("x", "y", "z")).store()
 
     # is it BALL?
     print("calculating ball...")
@@ -124,8 +169,9 @@ def features(features_collection: FeaturesCollection,
     # Distances to boundary
     print("calculating distance to boundary...")
 
+    oft = features_collection.each.define_static_boundary(['tl', 'tr', 'bl', 'br'], name = 'oft')
     for point in distance_to_boundary:
-        features_collection.distance_to_boundary_dynamic(point, ["tl", "tr", "bl", "br"], "oft").store()
+        features_collection.each.distance_to_boundary(point, boundary = oft).store()
 
     # Volume
     print("calculating volume...")

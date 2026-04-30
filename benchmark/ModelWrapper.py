@@ -9,7 +9,7 @@ from typing import Literal, Sequence, Dict
 from CSVReader import csv_read
 
 class ModelWrapper():
-    def __init__(self, name : str, test_set : Sequence[str], predictions_folder : str , true_folder : str, output_folder : str, column_names : Dict[int, str], smoothing : Literal["gap", "py3r", "no"] = "gap", smoothing_window : int = 5):
+    def __init__(self, name : str, test_set : Sequence[str], predictions_folder : str , true_folder : str, output_folder : str, column_names : Dict[int, str], smoothing : Literal["gap", "py3r", "no"] = "gap", gap_window : int = 5, min_duration_window : int = None):
 
         self.column_names = column_names
         self.name = name
@@ -18,21 +18,25 @@ class ModelWrapper():
         self.total_true = pd.DataFrame()
         self.output_folder = output_folder
 
+        if min_duration_window is None:
+            min_duration_window = gap_window
+
         for partial_path in test_set:
             total_prediction_file_path = predictions_folder + "/" + partial_path + ".csv"
             total_true_file_path = true_folder + "/" + partial_path + ".csv"
-            label_wrapper = LabelWrapper(total_prediction_file_path, total_true_file_path, column_names = column_names, smoothing = smoothing, smoothing_window = smoothing_window)
+            label_wrapper = LabelWrapper(total_prediction_file_path, total_true_file_path, column_names = column_names, smoothing = smoothing, gap_window = gap_window, min_duration_window = min_duration_window)
             self.label_wrappers.append(label_wrapper)
             self.total_prediction = pd.concat((self.total_prediction, label_wrapper.pred), ignore_index = True)
             self.total_true = pd.concat((self.total_true, label_wrapper.true), ignore_index = True)
-        
+
         print(colors.WARNING + f"{name} initialized:\n" +
               colors.CYAN +"   TEST SET SIZE = " + colors.ENDC + f"{len(test_set)}\n"+
               colors.CYAN +"   PREDICTIONS PATH = " + colors.ENDC + f"{predictions_folder}\n"+
-              colors.CYAN +"   TRUE PATH = " + colors.ENDC + f"{true_folder}\n" + 
+              colors.CYAN +"   TRUE PATH = " + colors.ENDC + f"{true_folder}\n" +
               colors.CYAN +"   OUTPUT PATH = " + colors.ENDC + f"{self.output_folder}\n" +
               colors.CYAN +"   SMOOTHING TYPE = " + colors.ENDC + f"{smoothing}\n" +
-              colors.CYAN +"   SMOOTHING WINDOW = " + colors.ENDC + f"{smoothing_window}\n"
+              colors.CYAN +"   SMOOTHING WINDOW (gap fill) = " + colors.ENDC + f"{gap_window}\n" +
+              colors.CYAN +"   SMOOTHING WINDOW (min duration) = " + colors.ENDC + f"{min_duration_window}\n"
               )
         
         self.count_behaviors()
@@ -88,13 +92,16 @@ class ModelWrapper():
               )
 
 class LabelWrapper():
-    def __init__(self, total_prediction_file_path : str, total_true_file_path : tuple[str], column_names : Dict[str, int], smoothing : Literal["gap", "py3r", "no"], smoothing_window : int = 5):
+    def __init__(self, total_prediction_file_path : str, total_true_file_path : tuple[str], column_names : Dict[str, int], smoothing : Literal["gap", "py3r", "no"], gap_window : int = 5, min_duration_window : int = None):
         self.true, self.pred = csv_read(true_path = total_true_file_path,  pred_path = total_prediction_file_path, cut_and_pad = True, column_names = column_names)
         self.column_names = column_names
 
+        if min_duration_window is None:
+            min_duration_window = gap_window
+
         if smoothing == "gap":
-            self.pred = apply_min_duration_filter(self.pred, min_duration = smoothing_window)
-            self.pred = apply_gap_fill(self.pred, max_gap = smoothing_window)
+            self.pred = apply_min_duration_filter(self.pred, min_duration = min_duration_window)
+            self.pred = apply_gap_fill(self.pred, max_gap = gap_window)
             self.pred = pd.Series(self.pred)
         
         if smoothing == "py3r":

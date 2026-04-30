@@ -9,18 +9,7 @@ Architecture:
 Input: Raw video frames from rotated_videos folder
 Output: Behavior classification per frame
 
-
-
-Changes from v18 (bg_fix -> v19):
-- Background class weight cap lowered from 0.5 to 0.2 (cap was previously above the
-  natural inverse-frequency weight, so it had no effect)
-- Explicit per-class boost multipliers for underperforming classes:
-  Unsupportedrearing x1.5, Grooming x1.5
-- Label smoothing reduced from 0.05 to 0.01 (was fighting class weighting on imbalanced videos)
-- DROPOUT increased from 0.3 to 0.4 for stronger regularization
-
-Changes from v22
-- removed frame dropout
+#v25: unsupported rearing x2.0 instead of x1.5
 """
 
 import torch
@@ -70,7 +59,7 @@ class CNNFeatureExtractor(nn.Module):
         super().__init__()
 
         # Initial convolution
-        # Input (H=142, W=76) -> after two stride-2 convs + maxpool -> (H=18, W=9)
+        # Input (H=142, W=76) -> after two stride-2 convs -> (H=36, W=19)
 
         self.initial_conv = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size = (5, 5), stride = (2, 2), padding = (2, 2)),
@@ -83,7 +72,7 @@ class CNNFeatureExtractor(nn.Module):
         # ResBlock population 1
         self.res_blocks_1 = nn.Sequential(*[ResBlock2D(48) for _ in range(res_depth)])
 
-        # Transition layer -> (H=9, W=5)
+        # Transition layer -> (H=18, W=9)
         self.transition_1 = nn.Sequential(
             nn.Conv2d(48, 64, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
             nn.BatchNorm2d(64),
@@ -96,7 +85,7 @@ class CNNFeatureExtractor(nn.Module):
         # ResBlock population 2
         self.res_blocks_2 = nn.Sequential(*[ResBlock2D(64) for _ in range(res_depth)])
 
-        # Transition layer -> (H=5, W=3)
+        # Transition layer -> (H=9, W=4)
         self.transition_2 = nn.Sequential(
             nn.Conv2d(64, 80, kernel_size = (3, 3), stride = (1, 1), padding = (1, 1)),
             nn.BatchNorm2d(80),
@@ -197,6 +186,7 @@ class CNNTransformerClassifier(nn.Module):
         self.classifier = nn.Sequential(
             nn.Linear(d_model, d_model // 2),
             nn.LayerNorm(d_model // 2),
+            nn.GELU(),
             nn.Dropout(dropout),
             nn.Linear(d_model // 2, num_classes)
         )
@@ -335,6 +325,7 @@ class VideoSequenceDataset(Dataset):
                 frames.append(np.zeros(self.img_size[::-1], dtype=np.uint8))
             else:
                 gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray = cv2.resize(gray, self.img_size)  # img_size is (width, height)
                 frames.append(gray)
 
         cap.release()
@@ -415,6 +406,8 @@ def evaluate(model, dataloader, device, use_consensus=True, return_per_video=Fal
     model.eval()
 
     if not use_consensus:
+        if return_per_video:
+            raise ValueError("return_per_video=True requires use_consensus=True")
         all_preds  = []
         all_labels = []
         with torch.no_grad():
@@ -500,6 +493,8 @@ def apply_min_duration_filter(preds, min_duration=5, background_class=0):
     Remove short predicted runs of non-background classes.
     Any contiguous run shorter than min_duration frames is replaced by
     the preceding class (or background if at the start).
+    When a replacement is made, the scan restarts from i so that the newly
+    patched-in class is also checked against min_duration.
     """
     preds = np.array(preds, dtype=int)
     i = 0
@@ -515,7 +510,13 @@ def apply_min_duration_filter(preds, min_duration=5, background_class=0):
         if run_length < min_duration:
             replacement = preds[i - 1] if i > 0 else background_class
             preds[i:j] = replacement
-        i = j
+            if replacement == cls:
+                # Merged into the preceding run of the same class; no re-scan needed
+                # (re-scanning would loop forever since preds[i-1] never changes).
+                i = j
+            # else: re-scan from i — replacement may itself be a short non-background run
+        else:
+            i = j
     return preds
 
 
@@ -559,9 +560,9 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v23"
-    VIDEO_FOLDER    = "./videos/rotated_videos"
-    LABEL_FOLDER    = "./videos/labels"
+    DATASET_VERSION = "lite_v25"
+    VIDEO_FOLDER    = "./data/rotated_videos"
+    LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
     LABEL_ENCODER_PATH = f"./output/cnn_transformer/label_encoder_{DATASET_VERSION}.pkl"
 
@@ -678,6 +679,7 @@ if __name__ == "__main__":
     print(f"Test dataset:       {len(test_dataset)} sequences")
 
     train_dataset.labels      = [int(l) for l in train_dataset.labels]
+    train_eval_dataset.labels = [int(l) for l in train_eval_dataset.labels]
     val_eval_dataset.labels   = [int(l) for l in val_eval_dataset.labels]
     test_dataset.labels       = [int(l) for l in test_dataset.labels]
 
@@ -699,7 +701,7 @@ if __name__ == "__main__":
             num_layers=checkpoint['num_layers'],
             num_classes=checkpoint['num_classes'],
             dim_feedforward=checkpoint['dim_feedforward'],
-            dropout=DROPOUT
+            dropout=checkpoint.get('dropout', DROPOUT)  # fall back to runtime value for old checkpoints
         ).to(device)
 
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -768,10 +770,14 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False,
                              num_workers=2, pin_memory=True)
 
-    # Class weights
-    unique, counts = np.unique(train_dataset.labels, return_counts=True)
+    # Class weights — computed from all per-frame labels across training videos,
+    # not just anchor-frame labels, to correctly reflect the true class distribution.
+    all_train_labels = np.concatenate([
+        train_dataset.label_cache[vid] for vid in train_dataset.label_cache
+    ])
+    unique, counts = np.unique(all_train_labels, return_counts=True)
     class_counts   = dict(zip(unique, counts))
-    total_samples  = len(train_dataset.labels)
+    total_samples  = len(all_train_labels)
 
     print(f"\n=== Class Distribution ===")
     for cls_idx, cls_name in enumerate(behavior_names):
@@ -786,7 +792,7 @@ if __name__ == "__main__":
 
     # CHANGE (v20): Boost underperforming classes before capping background.
     # Unsupportedrearing and Grooming consistently spill into background on test set.
-    CLASS_BOOSTS = {'Unsupportedrearing': 1.5, 'Grooming': 1.5}
+    CLASS_BOOSTS = {'Unsupportedrearing': 2.0, 'Grooming': 1.5}
     for cls_idx, cls_name in enumerate(behavior_names):
         if cls_name in CLASS_BOOSTS:
             class_weights[cls_idx] *= CLASS_BOOSTS[cls_name]
@@ -794,7 +800,7 @@ if __name__ == "__main__":
     # CHANGE (v20): Background weight cap lowered from 0.5 to 0.2.
     # With ~74% background frames and 5 classes, the natural inverse-frequency weight
     # is ~0.27 — the old cap of 0.5 was above that, so it had no effect at all.
-    background_idx = behavior_names.index('background') if 'background' in behavior_names else None
+    background_idx = next((i for i, n in enumerate(behavior_names) if n.lower() == 'background'), None)
     if background_idx is not None:
         class_weights[background_idx] = min(class_weights[background_idx], 0.2)
 
@@ -853,7 +859,8 @@ if __name__ == "__main__":
                     'dim_feedforward':  DIM_FEEDFORWARD,
                     'num_classes':      num_classes,
                     'sequence_length':  SEQUENCE_LENGTH,
-                    'img_size':         IMG_SIZE
+                    'img_size':         IMG_SIZE,
+                    'dropout':          DROPOUT,
                 }, MODEL_PATH)
                 print(f"→ New best model saved! Val F1: {best_f1:.4f}")
                 patience_counter = 0
@@ -1039,7 +1046,9 @@ if __name__ == "__main__":
             predicted = np.array(video_counts[cls_name]['predicted'])
 
             axes[idx].scatter(actual, predicted, alpha=0.6, s=100)
-            max_val = max(actual.max(), predicted.max()) if (actual.max() > 0 or predicted.max() > 0) else 1
+            max_val = max(int(actual.max()) if len(actual) > 0 else 0,
+                         int(predicted.max()) if len(predicted) > 0 else 0)
+            max_val = max_val if max_val > 0 else 1
             axes[idx].plot([0, max_val], [0, max_val], 'k--', alpha=0.3, label='Perfect Agreement')
             axes[idx].set_xlabel('Actual Instance Count', fontsize=14)
             axes[idx].set_ylabel('Predicted Instance Count', fontsize=14)

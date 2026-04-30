@@ -38,7 +38,6 @@ class TCNN(Module):
             BatchNorm3d(32), 
             Dropout(0.1),
             MaxPool3d((1, 2, 2), (1, 2, 2)),
-            AvgPool3d((2, 1, 1), (2, 1, 1)),
             ReLU()
         )
         self.block1 = Sequential(*[ResBlock(32) for whatever in range(0, 3)])
@@ -72,15 +71,16 @@ class TCNN(Module):
             Dropout(0.3)
         )
         self.time_head = Sequential(
-            Linear(64, 128),
+            Linear(64, 64),
             GELU(),
             Dropout(0.3)
         )
+        self.temporal_proj = Linear(in_features=8, out_features=3, bias=False)
         self.final_head = Sequential(
-            Linear(128, 64), 
-            ReLU(), 
+            Linear(3 * 64, 96),
+            ReLU(),
             Dropout(0.3),
-            Linear(64, 5)
+            Linear(96, 5)
         )
 
     def forward(self, x : Tensor):
@@ -100,25 +100,20 @@ class TCNN(Module):
         x = self.final_convolution(x)
         
         B, C, T, H, W = x.shape
-        # --- spatial global average pooling ---
+
         x = x.mean(dim=(3, 4))          # [B, C, T]
-
-        # --- prepare per-time-step features ---
         x = x.permute(0, 2, 1)          # [B, T, C]
-        x = x.reshape(B * T, C)         # [B*T, C]
+        x = x.reshape(B * T, C)
 
-        # --- time head ---
-        x = self.time_head(x)           # [B*T, D]
+        x = self.time_head(x)           # [B*T, 128]
 
-        # --- restore temporal structure ---
-        x = x.view(B, T, -1)            # [B, T, D]
+        x = x.view(B, T, -1)            # [B, T, 128]
 
-        # --- temporal pooling (recommended) ---
-        x = x.max(dim=1).values               # [B, D]
+        x = x.transpose(1, 2)           # [B, 128, T]
+        x = self.temporal_proj(x)       # [B, 128, 3]
+        x = x.flatten(1)                # [B, 384]
 
-        # --- final classification ---
-        x = self.final_head(x)          # [B, num_classes]
-
+        x = self.final_head(x)          # [B, 5]
         return x
 
 def train_model(dataloaders : Sequence[DataLoader], network : TCNN, loss_fn : CrossEntropyLoss, optimizer : torch.optim.AdamW, device: torch.device):

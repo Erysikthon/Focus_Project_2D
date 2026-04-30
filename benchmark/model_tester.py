@@ -18,24 +18,30 @@ TRUE_FOLDER = "./true"
 COLUMN_NAMES = {0 : "background", 1 : "Supportedrearing", 2 : "Unsupportedrearing", 3 : "Grooming", 4 : "Digging"}
 OUTPUT_FOLDER = "./output"
 SMOOTHING = "gap"
-SMOOTHING_WINDOW = 5
+GAP_WINDOW = 5
+MIN_DURATION_WINDOW = 5
+PREDICT = False
 CONFUSION_MATRIX_NORMALIZE = True
 PREDICTIONS_FOLDER_HGB = "./predictions/HGB"
 PREDICTIONS_FOLDER_CNN_TRANSFORMER = "./predictions/CNN_Transformer"
 PREDICTIONS_FOLDER_OLD_MODEL = "./predictions/old_model"
 PREDICTIONS_FOLDER_TCNN = "./predictions/TCNN"
+PREDICTIONS_FOLDER_TRANSFORMER = "./predictions/Transformer"
 
-old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_OLD_MODEL, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+old_model = ModelWrapper(name = "Old Model", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_OLD_MODEL, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
 old_model.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-hgb = ModelWrapper(name = "HGB", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_HGB, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+hgb = ModelWrapper(name = "HGB", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_HGB, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
 hgb.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-CNN_transformer = ModelWrapper(name = "CNN Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_CNN_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+CNN_transformer = ModelWrapper(name = "CNN Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_CNN_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
 CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-TCNN = ModelWrapper(name = "TCNN", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TCNN, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, smoothing_window = SMOOTHING_WINDOW)
+TCNN = ModelWrapper(name = "TCNN", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TCNN, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
 TCNN.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+
+Transformer = ModelWrapper(name = "Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
+Transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
 # How to see total instance count
 pred_behaviors = [0, 0, 0, 0, 0]
@@ -55,14 +61,14 @@ print(true_behaviors)
 from plots import plot_instance_count_scatter
 
 plot_instance_count_scatter(
-    model_wrappers=[old_model, hgb , TCNN,  CNN_transformer],
+    model_wrappers=[old_model, hgb ,Transformer, TCNN,  CNN_transformer],
     output_path="./output/instance_count_scatter.png"
 )
 
 # F1 plot
 from plots import plot_f1_scores
 
-plot_f1_scores(model_wrappers = [old_model, hgb, TCNN, CNN_transformer], output_path="output/f1_scores.png")
+plot_f1_scores(model_wrappers = [old_model, hgb, Transformer, TCNN, CNN_transformer], output_path="output/f1_scores.png")
 
 # Computing time
 from plots import plot_computing_times
@@ -70,14 +76,14 @@ from plots import plot_computing_times
 plot_computing_times(output_path="./output/computing_time.png")
 
 # Prediction Video
-from create_video import annotate_video_with_predictions
-
-for model in [old_model, hgb, TCNN, CNN_transformer]:
-    for idx, video_id in enumerate(TEST_VIDEO_IDS):
-        annotate_video_with_predictions(
-            video_path=f"./videos/{video_id}.mp4",
-            predictions=model.label_wrappers[idx].pred,
-            output_path=f"./output/annotated_videos/{video_id}_{model.name.replace(' ', '_')}_annotated.mp4",
-            true_labels=model.label_wrappers[idx].true,
-            column_names=COLUMN_NAMES,
-        )
+if PREDICT:
+    from create_video import annotate_video_with_predictions
+    for model in [old_model, hgb , Transformer, TCNN, CNN_transformer]:
+        for idx, video_id in enumerate(TEST_VIDEO_IDS):
+            annotate_video_with_predictions(
+                video_path=f"./videos/{video_id}.mp4",
+                predictions=model.label_wrappers[idx].pred,
+                output_path=f"./output/annotated_videos/{video_id}_{model.name.replace(' ', '_')}_annotated.mp4",
+                true_labels=model.label_wrappers[idx].true,
+                column_names=COLUMN_NAMES,
+            )

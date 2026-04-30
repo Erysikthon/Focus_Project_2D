@@ -5,11 +5,15 @@ def csv_read(true_path: str, pred_path: str, cut_and_pad: bool, column_names: di
 
     true_disordered = pd.read_csv(true_path, index_col=0)
     pred_disordered = pd.read_csv(pred_path, index_col=0)
+
+    true_disordered.columns = [c.upper() for c in true_disordered.columns]
+    pred_disordered.columns = [c.upper() for c in pred_disordered.columns]
+
     true = pd.DataFrame()
     pred = pd.DataFrame()
 
     for i in range(len(column_names)):
-        col = column_names[i]
+        col = column_names[i].upper()
         true[i] = true_disordered[col]
         pred[i] = pred_disordered[col]
 

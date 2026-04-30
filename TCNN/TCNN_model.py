@@ -114,7 +114,7 @@ class TCNN(Module):
         x = x.view(B, T, -1)            # [B, T, D]
 
         # --- temporal pooling (recommended) ---
-        x = x.mean(dim=1)               # [B, D]
+        x = x.max(dim=1).values               # [B, D]
 
         # --- final classification ---
         x = self.final_head(x)          # [B, num_classes]
@@ -142,6 +142,7 @@ def train_model(dataloaders : Sequence[DataLoader], network : TCNN, loss_fn : Cr
                 loss.backward()
                 optimizer.step()
                 partial_loss += loss.detach().item()
+            print(classification_report(tot_true, tot_pred))
             partial_loss = partial_loss / len(dataloader)
             total_loss += (partial_loss)
             pbar.update(1)

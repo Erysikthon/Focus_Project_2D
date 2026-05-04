@@ -35,7 +35,7 @@ from sklearn.preprocessing import StandardScaler
 start = time.time()
 
 # Define dataset version (e.g., "actual", "actual_1", "actual_2")
-DATASET_VERSION = "hgb_3D_v1"
+DATASET_VERSION = "hgb_3D_v2"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_3D.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_3D_filtered.csv"
@@ -182,17 +182,34 @@ else:
     X.to_csv(X_filtered_path)
     print("Filtered X saved!")
 
+# OFT dataset: 20 videos (collection 1-21, no 5) — 14 train / 3 val / 3 test (70/15/15)
+_val_ids  = [7, 14, 20]
+_test_ids = [4, 11, 17]
+
 if not os.path.isfile(model_path):
 
-    # Split data (collinearity filtering already applied)
-    X_train, X_test, y_train, y_test = video_train_test_split(X, y, test_videos=10, random_state =20)
+    # Split data using explicit OFT video IDs
+    _all_ids    = list(X.index.get_level_values("video_id").unique())
+    _held_out   = set(_val_ids + _test_ids)
+    train_video_ids = [v for v in _all_ids if v not in _held_out]
+    val_video_ids   = [v for v in _val_ids  if v in _all_ids]
+    test_video_ids  = [v for v in _test_ids if v in _all_ids]
+    print(f"Split: Train={len(train_video_ids)}, Val={len(val_video_ids)}, Test={len(test_video_ids)} videos")
+
+    X_train = X.loc[X.index.get_level_values('video_id').isin(train_video_ids)]
+    X_val   = X.loc[X.index.get_level_values('video_id').isin(val_video_ids)]
+    X_test  = X.loc[X.index.get_level_values('video_id').isin(test_video_ids)]
+    y_train = y.loc[y.index.get_level_values('video_id').isin(train_video_ids)]
+    y_val   = y.loc[y.index.get_level_values('video_id').isin(val_video_ids)]
+    y_test  = y.loc[y.index.get_level_values('video_id').isin(test_video_ids)]
 
     # Get video groups for cross-validation
     groups_train = X_train.index.get_level_values("video_id")
 
     # Ravel
     y_train = y_train.values.ravel()
-    y_test = y_test.values.ravel()
+    y_val   = y_val.values.ravel()
+    y_test  = y_test.values.ravel()
 
     # Calculate class weights for multi-class imbalanced data
     unique, counts = np.unique(y_train, return_counts=True)
@@ -260,6 +277,12 @@ else:
     if not isinstance(y_train, np.ndarray):
         y_train = y_train.values.ravel()
         y_test = y_test.values.ravel()
+
+    # Reconstruct val set from known OFT IDs
+    _all_ids = list(X.index.get_level_values("video_id").unique())
+    val_video_ids = [v for v in _val_ids if v in _all_ids]
+    X_val = X.loc[X.index.get_level_values('video_id').isin(val_video_ids)]
+    y_val = y.loc[y.index.get_level_values('video_id').isin(val_video_ids)].values.ravel()
 
     # Print performance evaluation for loaded model
     print("\n=== Performance Evaluation for Loaded Model ===")

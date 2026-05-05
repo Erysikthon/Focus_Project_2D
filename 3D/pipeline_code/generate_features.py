@@ -107,7 +107,7 @@ def triangulate(collection_path: str,
 def features(features_collection: FeaturesCollection,
              distance: set[tuple[str, str]] = [],
              height_diff: set[tuple[str, str]] = [],
-             angle: dict[tuple[str]: str] = [],
+             angle: set[tuple[str, str, str]] = [],
              speed: tuple = [],
              distance_to_boundary: tuple[str] = [],
              is_point_recognized: tuple[str] = [],
@@ -142,14 +142,7 @@ def features(features_collection: FeaturesCollection,
     for handle in angle:
         radians_or_sincos: str = angle[handle]
         if radians_or_sincos == "radians":
-            features_collection.angle(handle[0], handle[1], handle[2], handle[3], plane=("x", "y")).store()
-            features_collection.angle(handle[0], handle[1], handle[2], handle[3], plane=("y", "z")).store()
-
-        elif radians_or_sincos == "sincos":
-            features_collection.sin_of_angle(handle[0], handle[1], handle[2], handle[3], plane=("x", "y")).store()
-            features_collection.cos_of_angle(handle[0], handle[1], handle[2], handle[3], plane=("x", "y")).store()
-            features_collection.sin_of_angle(handle[0], handle[1], handle[2], handle[3], plane=("y", "z")).store()
-            features_collection.cos_of_angle(handle[0], handle[1], handle[2], handle[3], plane=("y", "z")).store()
+            features_collection.each.azimuth_deviation(handle[0], handle[1], handle[2]).store()
 
         else:
             raise KeyError(f"only sincos or radians are accepted as argument of angles. You typed: {radians_or_sincos}")

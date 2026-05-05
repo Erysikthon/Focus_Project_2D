@@ -92,15 +92,21 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                               ("tailcentre", "mid")
                                               },
 
-                               angle={("bodycentre", "neck", "neck", "headcentre"): "radians",
-                                      ("bodycentre", "neck", "neck", "earl"): "radians",
-                                      ("bodycentre", "neck", "neck", "earr"): "radians",
-                                      ("tailbase", "bodycentre", "bodycentre", "neck"): "radians",
-                                      ("tailbase", "bodycentre", "tailbase", "hipl"): "radians",
-                                      ("tailbase", "bodycentre", "tailbase", "hipr"): "radians",
-                                      ("tailbase", "bodycentre", "hipl", "bcl"): "radians",
-                                      ("tailbase", "bodycentre", "hipr", "bcr"): "radians",
-                                      ("bodycentre", "tailbase", "tailbase", "tailcentre"): "radians",
+                               # syntax for azimuth deviation: basepoint, line1, line2. ideally keep clockwise/counterclockwise
+                               # notation consistent across function calls
+
+                               # problem: both azimuth and azimuth deviation compute relative to x axis
+
+                               # also sin and cos will have to be computed elsehow
+                               angle={("neck", "bodycentre" "headcentre"),
+                                      ("neck", "bodycentre", "earl"),
+                                      ("neck", "bodycentre", "earr"),
+                                      ("tailbase", "bodycentre", "bodycentre", "neck"),
+                                      ("tailbase", "bodycentre", "tailbase", "hipl"),
+                                      ("tailbase", "bodycentre", "tailbase", "hipr"),
+                                      ("tailbase", "bodycentre", "hipl", "bcl"),
+                                      ("tailbase", "bodycentre", "hipr", "bcr"),
+                                      ("bodycentre", "tailbase", "tailbase", "tailcentre"),
                                       ("bodycentre", "tailbase", "tailcentre", "tailtip"): "radians"
                                       },
 

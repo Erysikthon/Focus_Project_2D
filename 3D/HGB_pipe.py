@@ -101,13 +101,13 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
                                angle={("neck", "bodycentre" "headcentre"),
                                       ("neck", "bodycentre", "earl"),
                                       ("neck", "bodycentre", "earr"),
-                                      ("tailbase", "bodycentre", "bodycentre", "neck"),
-                                      ("tailbase", "bodycentre", "tailbase", "hipl"),
-                                      ("tailbase", "bodycentre", "tailbase", "hipr"),
-                                      ("tailbase", "bodycentre", "hipl", "bcl"),
-                                      ("tailbase", "bodycentre", "hipr", "bcr"),
-                                      ("bodycentre", "tailbase", "tailbase", "tailcentre"),
-                                      ("bodycentre", "tailbase", "tailcentre", "tailtip"): "radians"
+                                      ("bodycentre", "tailbase", "neck"),
+                                      ("tailbase", "bodycentre" "hipl"),
+                                      ("tailbase", "bodycentre", "hipr"),
+                                      #("tailbase", "bodycentre", "hipl", "bcl"),
+                                      #("tailbase", "bodycentre", "hipr", "bcr"),
+                                      ("tailbase", "bodycentre", "tailcentre"),
+                                      #("bodycentre", "tailbase", "tailcentre", "tailtip")
                                       },
 
                                speed=("headcentre",

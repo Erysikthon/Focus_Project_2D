@@ -18,8 +18,10 @@ VIDEO_FOLDER = "./data/rotated_videos"
 LABEL_FOLDER = "./data/labels"
 OUTPUT_FOLDER = "./output"
 WINDOW_SIZE = 31
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 TRAIN_VIDEO_NAMES = ['20231123_10min_OFT-BL_3961', '20231123_10min_OFT-BL_3962', '20231123_10min_OFT-BL_3963', '20231123_10min_OFT-BL_3964', '20231123_10min_OFT-BL_4028', '3278_21min_behaviour_2023-01-19T11_08_30', 'BehavioralCamera2023-02-14T13_05_19_shorter', 'BehavioralCamera2023-02-14T15_22_37_shorter', 'BehavioralCamera2023-02-15T14_40_46_shorter', 'BehavioralCamera2023-02-18T10_33_06_shorter', 'BehavioralCamera2023-02-18T12_37_43_shorter', 'BehavioralCamera2023-02-23T15_42_37_shorter', 'BehavioralCamera2023-03-09T10_37_32', 'BehavioralCamera2023-03-09T11_04_40', 'BehavioralCamera2023-03-09T11_41_07', 'BehavioralCamera2023-03-09T12_34_50', 'BehavioralCamera2023-03-09T13_02_04', 'MBT1-M10', 'MBT1-M11', 'MBT1-M15', 'MBT1-M18', 'MBT1-M2', 'MBT1-M6', 'T1', 'T12', 'T13', 'T14', 'T16', 'T17', 'T18', 'T19', 'T2', 'T5', 'T8', 'T9']
+TRAIN_VIDEO_NAMES = ["T1"]
+
 TEST_VIDEO_NAMES = ['20231123_10min_OFT-BL_4025', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-02-23T10_23_42_shorter', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'BehavioralCamera2023-03-09T12_08_14', 'MBT1-M7', 'T11', 'T15', 'T4', 'T6']
 
 
@@ -33,11 +35,22 @@ else:
     print (colors.WARNING + "\n[WARNING]: accelerator not found, computing on CPU\n" + colors.ENDC)
     device = torch.device("cpu")
 
+class FocalLoss(torch.nn.Module):
+    def __init__(self, gamma=1.5, weight=None):
+        super().__init__()
+        self.gamma = gamma
+        self.ce = CrossEntropyLoss(weight=weight, reduction="none")
+
+    def forward(self, logits, targets):
+        ce = self.ce(logits, targets)
+        pt = torch.exp(-ce)
+        return ((1 - pt) ** self.gamma * ce).mean()
+    
 network = TCNN().to(device)
-class_weights = torch.tensor(np.array([0.3, 1.3, 4.5, 2.8, 1], dtype = np.float32)).to(device)
-loss = CrossEntropyLoss(class_weights)
-optimizer = torch.optim.AdamW(params = network.parameters(), lr = 0.00001)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20, eta_min=1e-8)
+weights = torch.tensor([1, 1.7, 2.5, 2, 1.5], dtype=torch.float)
+loss_fn = FocalLoss(weight=weights.to(device))
+optimizer = torch.optim.AdamW(params = network.parameters(), lr = 0.0001)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20, eta_min=1e-7)
 
 train_dataloaders = []
 for name in TRAIN_VIDEO_NAMES:
@@ -51,8 +64,8 @@ for name in TEST_VIDEO_NAMES:
 
 for epoch in range(1, 21):
     print(colors.GREEN + f"\nEpoch:" + colors.ENDC + f" {epoch}")
-    train_model(dataloaders = train_dataloaders, network = network, loss_fn = loss, optimizer = optimizer, device = device)
-    test_model(dataloaders = test_dataloaders, network = network, loss_fn = loss, device = device, output_folder = OUTPUT_FOLDER)
+    train_model(dataloaders = train_dataloaders, network = network, loss_fn = loss_fn, optimizer = optimizer, device = device)
+    test_model(dataloaders = test_dataloaders, network = network, loss_fn = loss_fn, device = device, output_folder = OUTPUT_FOLDER)
     scheduler.step()
     print(colors.WARNING + f"Learning Rate: " + colors.ENDC + f"{optimizer.param_groups[0]["lr"]}")
 

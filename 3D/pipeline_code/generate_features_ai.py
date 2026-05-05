@@ -93,7 +93,8 @@ def _tetrahedron_volume(td, p0, p1, p2, p3):
 
 
 def features(features_collection: FeaturesCollection,
-             distance: dict = {},
+             distance: set = set(),
+             height_diff: set = set(),
              angle: dict = {},
              speed: tuple = (),
              distance_to_boundary: tuple = (),
@@ -106,8 +107,12 @@ def features(features_collection: FeaturesCollection,
     # Distance
     print("calculating distance...")
     for handle in distance:
-        for dim in distance[handle]:
-            features_collection.each.distance_between(handle[0], handle[1], dims=(dim,)).store()
+        features_collection.each.distance_between(handle[0], handle[1], dims=("x", "y", "z")).store()
+
+    # Height differences (z-axis only)
+    print("calculating height differences...")
+    for handle in height_diff:
+        features_collection.each.distance_between(handle[0], handle[1], dims=("z",)).store()
 
     # Angles — computed manually to support arbitrary 4-point vectors in both xy and yz planes.
     # py3r's azimuth_deviation only handles 3-point (shared pivot) angles in the xy plane,

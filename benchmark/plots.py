@@ -164,11 +164,11 @@ def plot_computing_times(output_path):
     """
 
     times_s = {
-        'Old Model': 89,
-        'HGB': 0,
-        'Transformer': 1000,
+        'Old Model': 89, #89s
+        'HGB': 0, #feature generation (524.9s /54 * 10) + 13.4s
+        'Transformer': 1000, #feature generation 524.9s + 18.5s
         'TCNN': 0,
-        'CNN Transformer': 0,
+        'CNN Transformer': 0, # rotate vidoes + 248.6s (4.1min)
     }
 
     model_colors = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377']

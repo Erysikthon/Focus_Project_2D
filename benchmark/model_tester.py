@@ -20,7 +20,7 @@ OUTPUT_FOLDER = "./output"
 SMOOTHING = "gap"
 GAP_WINDOW = 5
 MIN_DURATION_WINDOW = 5
-PREDICT = False
+PREDICT = True
 CONFUSION_MATRIX_NORMALIZE = True
 PREDICTIONS_FOLDER_HGB = "./predictions/HGB"
 PREDICTIONS_FOLDER_CNN_TRANSFORMER = "./predictions/CNN_Transformer"
@@ -40,8 +40,8 @@ CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 TCNN = ModelWrapper(name = "TCNN", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TCNN, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
 TCNN.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
-Transformer = ModelWrapper(name = "Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
-Transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+#Transformer = ModelWrapper(name = "Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TRANSFORMER, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
+#Transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
 
 # How to see total instance count
 pred_behaviors = [0, 0, 0, 0, 0]
@@ -61,14 +61,14 @@ print(true_behaviors)
 from plots import plot_instance_count_scatter
 
 plot_instance_count_scatter(
-    model_wrappers=[old_model, hgb ,Transformer, TCNN,  CNN_transformer],
+    model_wrappers=[old_model, hgb , TCNN,  CNN_transformer],
     output_path="./output/instance_count_scatter.png"
 )
 
 # F1 plot
 from plots import plot_f1_scores
 
-plot_f1_scores(model_wrappers = [old_model, hgb, Transformer, TCNN, CNN_transformer], output_path="output/f1_scores.png")
+plot_f1_scores(model_wrappers = [old_model, hgb, TCNN, CNN_transformer], output_path="output/f1_scores.png")
 
 # Computing time
 from plots import plot_computing_times
@@ -78,7 +78,7 @@ plot_computing_times(output_path="./output/computing_time.png")
 # Prediction Video
 if PREDICT:
     from create_video import annotate_video_with_predictions
-    for model in [old_model, hgb , Transformer, TCNN, CNN_transformer]:
+    for model in [old_model, hgb , TCNN, CNN_transformer]:
         for idx, video_id in enumerate(TEST_VIDEO_IDS):
             annotate_video_with_predictions(
                 video_path=f"./videos/{video_id}.mp4",

@@ -19,9 +19,7 @@ LABEL_FOLDER = "./data/labels"
 OUTPUT_FOLDER = "./output"
 WINDOW_SIZE = 31
 BATCH_SIZE = 32
-TRAIN_VIDEO_NAMES = ['20231123_10min_OFT-BL_3961', '20231123_10min_OFT-BL_3962', '20231123_10min_OFT-BL_3963', '20231123_10min_OFT-BL_3964', '20231123_10min_OFT-BL_4028', '3278_21min_behaviour_2023-01-19T11_08_30', 'BehavioralCamera2023-02-14T13_05_19_shorter', 'BehavioralCamera2023-02-14T15_22_37_shorter', 'BehavioralCamera2023-02-15T14_40_46_shorter', 'BehavioralCamera2023-02-18T10_33_06_shorter', 'BehavioralCamera2023-02-18T12_37_43_shorter', 'BehavioralCamera2023-02-23T15_42_37_shorter', 'BehavioralCamera2023-03-09T10_37_32', 'BehavioralCamera2023-03-09T11_04_40', 'BehavioralCamera2023-03-09T11_41_07', 'BehavioralCamera2023-03-09T12_34_50', 'BehavioralCamera2023-03-09T13_02_04', 'MBT1-M10', 'MBT1-M11', 'MBT1-M15', 'MBT1-M18', 'MBT1-M2', 'MBT1-M6', 'T1', 'T12', 'T13', 'T14', 'T16', 'T17', 'T18', 'T19', 'T2', 'T5', 'T8', 'T9']
-TRAIN_VIDEO_NAMES = ["T1"]
-
+TRAIN_VIDEO_NAMES = ['MBT1-M10', '20231123_10min_OFT-BL_3961', '20231123_10min_OFT-BL_3962', '20231123_10min_OFT-BL_3963', '20231123_10min_OFT-BL_3964', '20231123_10min_OFT-BL_4028', '3278_21min_behaviour_2023-01-19T11_08_30', 'BehavioralCamera2023-02-14T13_05_19_shorter', 'BehavioralCamera2023-02-14T15_22_37_shorter', 'BehavioralCamera2023-02-15T14_40_46_shorter', 'BehavioralCamera2023-02-18T10_33_06_shorter', 'BehavioralCamera2023-02-18T12_37_43_shorter', 'BehavioralCamera2023-02-23T15_42_37_shorter', 'BehavioralCamera2023-03-09T10_37_32', 'BehavioralCamera2023-03-09T11_04_40', 'BehavioralCamera2023-03-09T11_41_07', 'BehavioralCamera2023-03-09T12_34_50', 'BehavioralCamera2023-03-09T13_02_04', 'MBT1-M11', 'MBT1-M15', 'MBT1-M18', 'MBT1-M2', 'MBT1-M6', 'T1', 'T12', 'T13', 'T14', 'T16', 'T17', 'T18', 'T19', 'T2', 'T5', 'T8', 'T9']
 TEST_VIDEO_NAMES = ['20231123_10min_OFT-BL_4025', '3279_21min_behaviour_2023-01-19T12_57_29', 'BehavioralCamera2023-02-23T10_23_42_shorter', 'BehavioralCamera2023-02-24T11_06_53_shorter', 'BehavioralCamera2023-03-09T12_08_14', 'MBT1-M7', 'T11', 'T15', 'T4', 'T6']
 
 
@@ -36,7 +34,7 @@ else:
     device = torch.device("cpu")
 
 class FocalLoss(torch.nn.Module):
-    def __init__(self, gamma=1.5, weight=None):
+    def __init__(self, gamma=3, weight=None):
         super().__init__()
         self.gamma = gamma
         self.ce = CrossEntropyLoss(weight=weight, reduction="none")
@@ -47,15 +45,15 @@ class FocalLoss(torch.nn.Module):
         return ((1 - pt) ** self.gamma * ce).mean()
     
 network = TCNN().to(device)
-weights = torch.tensor([1, 1.7, 2.5, 2, 1.5], dtype=torch.float)
+weights = torch.tensor([0.5, 3.4, 7, 4, 3], dtype=torch.float)
 loss_fn = FocalLoss(weight=weights.to(device))
-optimizer = torch.optim.AdamW(params = network.parameters(), lr = 0.0001)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=20, eta_min=1e-7)
+optimizer = torch.optim.AdamW(params = network.parameters(), lr = 5e-5)
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=15, eta_min=1e-7)
 
 train_dataloaders = []
 for name in TRAIN_VIDEO_NAMES:
     train_dataloaders.append(DataLoader(SingleVideoDataset(video_folder = VIDEO_FOLDER, label_folder = LABEL_FOLDER, name = name, window_size = WINDOW_SIZE), 
-                                        batch_size = BATCH_SIZE))
+                                        batch_size = BATCH_SIZE, shuffle = True))
 
 test_dataloaders = []
 for name in TEST_VIDEO_NAMES:

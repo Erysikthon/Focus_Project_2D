@@ -1,5 +1,5 @@
-from pipeline_code.generate_features_ai import triangulate
-from pipeline_code.generate_features_ai import features
+from pipeline_code.generate_features_NEW import triangulate
+from pipeline_code.generate_features_NEW import features
 from pipeline_code.generate_labels import labels
 from pipeline_code.fix_frames import drop_non_analyzed_videos
 from pipeline_code.fix_frames import drop_last_frame
@@ -46,121 +46,14 @@ model_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}.pkl"
 
 if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
 
-    features_collection = triangulate(
-        collection_path="./pipeline_inputs/collection",
-        fps=30,
+    X_PATH = f"./pipeline_saved_processes/dataframes/X_3D.csv"
+    Y_PATH = f"./pipeline_saved_processes/dataframes/y_3D.csv"
+    COLLECTION_PATH="./pipeline_inputs/collection"
+    LABELS_PATH = "./pipeline_inputs/labels"
 
-        rescale_points=("tr", "tl"),
-        rescale_distance=0.64,
-        filter_threshold=0.9,
-        construction_points={"mid": {"between_points": ("tl", "tr", "bl", "br"), "mouse_or_oft": "oft"}, },
-        smoothing=True,
-        smoothing_mouse=3,
-        smoothing_oft=20
-    )
-
-    X: pd.DataFrame = features(features_collection,
-
-                               distance={("neck", "earl"),
-                                         ("neck", "earr"),
-                                         ("neck", "bcl"),
-                                         ("neck", "bcr"),
-                                         ("bcl", "hipl"),
-                                         ("bcr", "hipr"),
-                                         ("hipl", "tailbase"),
-                                         ("hipr", "tailbase"),
-                                         ("headcentre", "neck"),
-                                         ("neck", "bodycentre"),
-                                         ("bodycentre", "tailbase"),
-                                         ("headcentre", "earl"),
-                                         ("headcentre", "earr"),
-                                         ("bodycentre", "bcl"),
-                                         ("bodycentre", "bcr"),
-                                         ("bodycentre", "hipl"),
-                                         ("bodycentre", "hipr")
-                                        },
-
-                               height_diff = {("headcentre", "mid"),
-                                              ("earl", "mid"),
-                                              ("earr", "mid"),
-                                              ("neck", "mid"),
-                                              ("bcl", "mid"),
-                                              ("bcr", "mid"),
-                                              ("bodycentre", "mid"),
-                                              ("hipl", "mid"),
-                                              ("hipr", "mid"),
-                                              ("tailcentre", "mid")
-                                              },
-
-                               # syntax for azimuth deviation: basepoint, line1, line2. ideally keep clockwise/counterclockwise
-                               # notation consistent across function calls
-
-                               # problem: both azimuth and azimuth deviation compute relative to x axis
-
-                               # also sin and cos will have to be computed elsehow
-                               angle={("neck", "bodycentre" "headcentre"),
-                                      ("neck", "bodycentre", "earl"),
-                                      ("neck", "bodycentre", "earr"),
-                                      ("tailbase", "bodycentre", "bodycentre", "neck"),
-                                      ("tailbase", "bodycentre", "tailbase", "hipl"),
-                                      ("tailbase", "bodycentre", "tailbase", "hipr"),
-                                      ("tailbase", "bodycentre", "hipl", "bcl"),
-                                      ("tailbase", "bodycentre", "hipr", "bcr"),
-                                      ("bodycentre", "tailbase", "tailbase", "tailcentre"),
-                                      ("bodycentre", "tailbase", "tailcentre", "tailtip"): "radians"
-                                      },
-
-                               speed=("headcentre",
-                                      "earl",
-                                      "earr",
-                                      "neck",
-                                      "bcl",
-                                      "bcr",
-                                      "bodycentre",
-                                      "hipl",
-                                      "hipr",
-                                      "tailcentre"
-                                      ),
-
-                               distance_to_boundary=("headcentre",
-                                                     "earl",
-                                                     "earr",
-                                                     "neck",
-                                                     "bcl",
-                                                     "bcr",
-                                                     "bodycentre",
-                                                     "hipl",
-                                                     "hipr",
-                                                     "tailcentre"
-                                                     ),
-
-                               is_point_recognized=(["nose"]),
-
-                               volume={
-                                   ("neck", "bodycentre", "bcl", "bcr"): ((0, 1, 2), (2, 1, 3), (0, 3, 1), (0, 2, 3)),
-                                   ("bodycentre", "hipl", "tailbase", "hipr"): ((0, 3, 2), (3, 1, 2), (0, 2, 1),
-                                                                                (0, 1, 3)),
-                                   ("neck", "bcl", "hipl", "bodycentre"): ((0, 1, 3), (1, 2, 3), (3, 2, 0), (0, 2, 1)),
-                                   ("neck", "bcr", "hipr", "bodycentre"): ((0, 3, 1), (1, 3, 2), (3, 0, 2), (0, 1, 2))
-                                   },
-
-                               standard_deviation=("headcentre.z",
-                                                   "earl.z",
-                                                   "earr.z",
-                                                   "bodycentre.z",
-                                                   "Volume_of_neck_bodycentre_bcl_bcr",
-                                                   "Volume_of_bodycentre_hipl_tailbase_hipr",
-                                                   "Volume_of_neck_bcl_hipl_bodycentre",
-                                                   "Volume_of_neck_bcr_hipr_bodycentre"
-                                                   ),
-
-                               f_b_fill=True,
-
-                               embedding_length=list(range(-15, 16, 3))
-                               )
-
-    y = labels(labels_path="./pipeline_inputs/labels",
-               )
+    fc = triangulate(collection_path=COLLECTION_PATH)
+    X = features(fc, embedding_length = [0])
+    y = labels(labels_path = LABELS_PATH)
 
     X, y = drop_non_analyzed_videos(X=X, y=y)
     X, y = drop_last_frame(X=X, y=y)
@@ -168,8 +61,8 @@ if not (os.path.isfile(X_path) and os.path.isfile(y_path)):
     X = reduce_bits(X)
 
     print("saving...")
-    X.to_csv(X_path)
-    y.to_csv(y_path)
+    X.to_csv(X_PATH)
+    y.to_csv(Y_PATH)
     print("!files saved!")
 
 else:

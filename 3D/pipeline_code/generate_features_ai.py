@@ -65,13 +65,17 @@ def triangulate(collection_path: str,
     return features_collection
 
 
-def _angle_between_vectors(td, p0, p1, p2, p3, d0, d1):
-    """Angle (radians, wrapped to [-pi, pi]) between vectors p0->p1 and p2->p3 in the d0-d1 plane."""
-    az1 = np.arctan2(td[f'{p1}.{d1}'] - td[f'{p0}.{d1}'],
-                     td[f'{p1}.{d0}'] - td[f'{p0}.{d0}'])
-    az2 = np.arctan2(td[f'{p3}.{d1}'] - td[f'{p2}.{d1}'],
-                     td[f'{p3}.{d0}'] - td[f'{p2}.{d0}'])
-    return (az1 - az2 + np.pi) % (2 * np.pi) - np.pi
+def angle(self, point1: str, point2: str, point3: str, point4: str, plane = ("x", "y")):
+    """
+    output between -pi and pi, measures angle from first line to second line
+    this is the angle between the projections of the vectors in the given plane
+    WARNING: be mindful of input order. vectors are oriented from first to second point
+    """
+    a1 = self.azimuth(point1, point2, plane)
+    a2 = self.azimuth(point3, point4, plane)
+    agl = (a1 - a2 + np.pi) % (2 * np.pi) - np.pi
+
+    return agl
 
 
 def _tetrahedron_volume(td, p0, p1, p2, p3):
@@ -126,7 +130,7 @@ def features(features_collection: FeaturesCollection,
             feat = features_collection[file_key]
             td = feat.tracking.data
             for d0, d1 in [("x", "y"), ("y", "z")]:
-                ang = _angle_between_vectors(td, handle[0], handle[1], handle[2], handle[3], d0, d1)
+                ang = angle(td, handle[0], handle[1], handle[2], handle[3], d0, d1)
                 name_base = f"angle_{handle[0]}_{handle[1]}_{handle[2]}_{handle[3]}_{d0}{d1}"
                 if radians_or_sincos == "radians":
                     feat.store(ang, name_base)

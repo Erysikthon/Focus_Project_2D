@@ -1,0 +1,83 @@
+import matplotlib.pyplot as plt
+from ModelWrapper import ModelWrapper
+
+print("""\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n
+
+ooo        ooooo   .oooooo.   oooooooooo.   oooooooooooo ooooo             ooooooooooooo oooooooooooo  .oooooo..o ooooooooooooo oooooooooooo ooooooooo.   
+`88.       .888'  d8P'  `Y8b  `888'   `Y8b  `888'     `8 `888'             8'   888   `8 `888'     `8 d8P'    `Y8 8'   888   `8 `888'     `8 `888   `Y88. 
+ 888b     d'888  888      888  888      888  888          888                   888       888         Y88bo.           888       888          888   .d88' 
+ 8 Y88. .P  888  888      888  888      888  888oooo8     888                   888       888oooo8     `"Y8888o.       888       888oooo8     888ooo88P'  
+ 8  `888'   888  888      888  888      888  888    "     888                   888       888    "         `"Y88b      888       888    "     888`88b.    
+ 8    Y     888  `88b    d88'  888     d88'  888       o  888       o           888       888       o oo     .d8P      888       888       o  888  `88b.  
+o8o        o888o  `Y8bood8P'  o888bood8P'   o888ooooood8 o888ooooood8          o888o     o888ooooood8 8""88888P'      o888o     o888ooooood8 o888o  o888o 
+      
+            \n\n\n\n\n""")
+
+TEST_VIDEO_IDS  = ['4', '11', '17']
+TRUE_FOLDER = "./true_3D"
+COLUMN_NAMES = {0 : "background", 1 : "Supportedrearing", 2 : "Unsupportedrearing", 3 : "Grooming"}
+OUTPUT_FOLDER = "./output_3D"
+SMOOTHING = "gap"
+GAP_WINDOW = 5
+MIN_DURATION_WINDOW = 5
+PREDICT = False
+CONFUSION_MATRIX_NORMALIZE = True
+PREDICTIONS_FOLDER_HGB_3D = "./predictions_3D/hgb_3D"
+PREDICTIONS_FOLDER_CNN_TRANSFORMER_3D = "./predictions_3D/cnn_transformer_3D"
+PREDICTIONS_FOLDER_TRANSFORMER_3D = "./predictions_3D/transformer_3D"
+
+
+
+hgb = ModelWrapper(name = "HGB", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_HGB_3D, true_folder = TRUE_FOLDER, output_folder = OUTPUT_FOLDER, column_names = COLUMN_NAMES, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
+hgb.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+
+CNN_transformer = ModelWrapper(name = "CNN Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_CNN_TRANSFORMER_3D, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
+CNN_transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+
+Transformer = ModelWrapper(name = "Transformer", test_set = TEST_VIDEO_IDS, predictions_folder = PREDICTIONS_FOLDER_TRANSFORMER_3D, true_folder = TRUE_FOLDER,column_names = COLUMN_NAMES, output_folder = OUTPUT_FOLDER, smoothing = SMOOTHING, gap_window = GAP_WINDOW, min_duration_window = MIN_DURATION_WINDOW)
+Transformer.plot_confusion_matrix(normalize = CONFUSION_MATRIX_NORMALIZE)
+
+# How to see total instance count
+pred_behaviors = [0, 0, 0, 0]
+true_behaviors = [0, 0, 0, 0]
+
+for dictionary in CNN_transformer.pred_behavior_count:
+    for behavior in range(0, len(CNN_transformer.column_names)):
+        pred_behaviors[behavior] +=  dictionary[behavior]
+for dictionary in CNN_transformer.true_behavior_count:
+    for behavior in range(0, len(CNN_transformer.column_names)):
+        true_behaviors[behavior] +=  dictionary[behavior]
+
+print(pred_behaviors)
+print(true_behaviors)
+
+# Scatterplot
+from plots_3D import plot_instance_count_scatter
+
+plot_instance_count_scatter(
+    model_wrappers=[hgb ,Transformer,  CNN_transformer],
+    output_path="./output_3D/instance_count_scatter.png"
+)
+
+# F1 plot
+from plots_3D import plot_f1_scores
+
+plot_f1_scores(model_wrappers = [hgb, Transformer, CNN_transformer], output_path="output_3D/f1_scores.png")
+
+# Computing time
+from plots_3D import plot_computing_times
+
+plot_computing_times(output_path="./output_3D/computing_time.png")
+
+# Prediction Video
+if PREDICT:
+    from create_video import annotate_video_with_predictions
+    for model in [CNN_transformer]:
+        for idx, video_id in enumerate(TEST_VIDEO_IDS):
+            annotate_video_with_predictions(
+                video_path=f"./videos/{video_id}.mp4",
+                predictions=model.label_wrappers[idx].pred,
+                output_path=f"./output/annotated_videos/{video_id}_{model.name.replace(' ', '_')}_annotated.mp4",
+                true_labels=model.label_wrappers[idx].true,
+                column_names=COLUMN_NAMES,
+            )

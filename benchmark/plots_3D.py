@@ -35,7 +35,7 @@ def plot_instance_count_scatter(model_wrappers, output_path):
         axes = [axes]
 
     # Paul Tol "bright" colorblind-friendly palette
-    model_colors  = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377']
+    model_colors  = ['#EE6677', '#228833', '#66CCEE']
     model_markers = ['o', 's', '^', 'D', 'P', 'X']
 
     palette  = {m.name: c for m, c in zip(model_wrappers, model_colors)}
@@ -84,19 +84,19 @@ def plot_instance_count_scatter(model_wrappers, output_path):
         ax.plot([0, lim], [0, lim], 'k--', alpha=0.35, linewidth=1)
         ax.set_xlim(0, lim)
         ax.set_ylim(0, lim)
-        ax.set_title(_fmt(beh_name), fontsize=17, fontweight='bold')
-        ax.set_xlabel('Predicted Count', fontsize=15)
-        ax.set_ylabel('True Count', fontsize=15)
+        ax.set_title(_fmt(beh_name), fontsize=14, fontweight='bold')
+        ax.set_xlabel('Predicted Count', fontsize=12)
+        ax.set_ylabel('True Count', fontsize=12)
         ax.get_legend().remove()
         ax.grid(True, alpha=0.3)
         ax.set_aspect('equal', adjustable='box')
 
-    fig.suptitle('Behaviour Instance Counts — True vs Predicted', fontsize=18, fontweight='bold', y=1.05)
+    fig.suptitle('Behaviour Instance Counts — True vs Predicted', fontsize=15, fontweight='bold', y=1.05)
 
     # Single shared legend below title
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc='upper center', ncol=len(model_wrappers),
-               fontsize=15, bbox_to_anchor=(0.5, 1.00), frameon=True)
+               fontsize=13, bbox_to_anchor=(0.5, 1.00), frameon=True)
 
     plt.tight_layout(rect=[0, 0, 1, 0.95])
     plt.savefig(output_path, dpi=300, bbox_inches='tight')
@@ -114,7 +114,7 @@ def plot_f1_scores(model_wrappers, output_path):
         output_path:    path to save the PNG
     """
     # Paul Tol "bright" palette — same order as scatter plot
-    model_colors = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377']
+    model_colors = ['#EE6677', '#228833', '#66CCEE']
 
     # Behaviour order: background first, then the rest sorted
     column_names = model_wrappers[0].column_names
@@ -145,7 +145,7 @@ def plot_f1_scores(model_wrappers, output_path):
     ax.set_xticks(x_pos)
     ax.set_xticklabels([_fmt(b) for b in behavior_names], rotation=0, ha='center', fontsize=12)
     ax.set_ylim(0, 1.12)
-    ax.legend(fontsize=12, ncol=n_models, loc='upper right', columnspacing=1.0)
+    ax.legend(fontsize=12, ncol=min(n_models, 4), loc='upper right', columnspacing=1.0)
     ax.grid(True, axis='y', linestyle='--', alpha=0.7)
 
     plt.tight_layout()
@@ -168,11 +168,11 @@ def plot_computing_times(output_path):
         'Old Model': 89, #89s
         'HGB': 110.6, #feature generation (524.9s /54 * 10) + 13.4s
         'Transformer': 115.7, #feature generation 524.9s + 18.5s
-        'TCNN': 2114.1, #rotated videos 14.21 + 20min 53 sec
-        'CNN Transformer': 1109, # rotate vidoes 14.21min (861.1s) + 248.6s (4.1min)
+        'TCNN': 0, #rotated videos + 20min 53 sec
+        'CNN Transformer': 248.6, # rotate vidoes + 248.6s (4.1min)
     }
 
-    model_colors = ['#4477AA', '#EE6677', '#228833', '#CCBB44', '#66CCEE', '#AA3377']
+    model_colors = ['#4477AA', '#228833', '#CCBB44', '#EE6677', '#66CCEE', '#AA3377']
 
     names  = list(times_s.keys())
     values = list(times_s.values())
@@ -184,9 +184,8 @@ def plot_computing_times(output_path):
 
     for bar in bars:
         height = bar.get_height()
-        minutes = height / 60
         ax.text(bar.get_x() + bar.get_width() / 2., height,
-                f'{minutes:.1f} min',
+                f'{height:.1f} s',
                 ha='center', va='bottom', fontsize=11, fontweight='bold')
 
     ax.set_title('Computing Time', fontsize=16, fontweight='bold', pad=20)

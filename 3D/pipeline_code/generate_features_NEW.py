@@ -285,7 +285,7 @@ def features(features_collection : p3b.FeaturesCollection, embedding_length : li
     for file in features_collection.keys():
         feature_obj = features_collection[file]
         df = feature_obj.data
-        df = df.ffill().bfill()
+        df = df.ffill().bfill().fillna(0)
         feature_obj.data = df
 
     # Embedding — embedding_df lives on Features (not FeaturesCollection) and returns a DataFrame

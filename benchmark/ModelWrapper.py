@@ -79,7 +79,7 @@ class ModelWrapper():
                     yticklabels = labelnames, 
                     vmin = 0,
                     vmax = 1)
-        plt.title(f"Confusion Matrix {self.name}", pad = 10, fontsize = 20, weight = "bold")
+        plt.title(f"{self.name}", pad = 10, fontsize = 20, weight = "bold")
         plt.ylabel("True Label", fontsize = 15, labelpad = 10)
         plt.xlabel("Predicted Label", fontsize = 15, labelpad = 10)
         plt.xticks(fontsize = 12)

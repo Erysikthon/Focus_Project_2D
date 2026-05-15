@@ -26,7 +26,7 @@ import math
 start = time.time()
 
 # Define dataset version
-DATASET_VERSION = "Transformer_3D_v1"
+DATASET_VERSION = "Transformer_3D_v2"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_3D.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_3D_filtered.csv"
@@ -326,7 +326,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device, scheduler=None)
 
 
 # Evaluation function
-def evaluate(model, dataloader, device, use_consensus=True):
+def evaluate(model, dataloader, device, use_consensus=True, return_keys=False):
     """
     Evaluate model with per-frame predictions
 
@@ -386,15 +386,16 @@ def evaluate(model, dataloader, device, use_consensus=True):
     # Apply majority voting
     consensus_preds = []
     consensus_labels = []
+    sorted_keys = sorted(frame_predictions.keys())
 
-    for key in sorted(frame_predictions.keys()):
-        # Majority vote (mode)
+    for key in sorted_keys:
         preds = frame_predictions[key]
         consensus_pred = stats.mode(preds, keepdims=False)[0]
-
         consensus_preds.append(consensus_pred)
         consensus_labels.append(frame_labels[key])
 
+    if return_keys:
+        return np.array(consensus_preds), np.array(consensus_labels), sorted_keys
     return np.array(consensus_preds), np.array(consensus_labels)
 
 
@@ -747,7 +748,7 @@ plt.close()
 log("\n" + "="*60)
 log("FINAL TEST SET EVALUATION")
 log("="*60)
-y_pred, y_true = evaluate(model, test_loader, device)
+y_pred, y_true, test_frame_keys = evaluate(model, test_loader, device, return_keys=True)
 
 test_acc = 100 * np.sum(y_pred == y_true) / len(y_true)
 test_f1  = f1_score(y_true, y_pred, average='macro')
@@ -768,6 +769,38 @@ plt.xlabel('Predicted Label')
 plt.tight_layout()
 plt.savefig(f'pipeline_outputs/conf_matrix_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
 plt.close()
+
+PREDICTION_OUTPUT_FOLDER = "./pipeline_outputs/predictions_transformer_3D"
+os.makedirs(PREDICTION_OUTPUT_FOLDER, exist_ok=True)
+
+BEHAVIOR_NAMES = ["background", "Supportedrearing", "Unsupportedrearing", "Grooming"]
+CLASS_TO_COLUMN = {
+    "background":      "background",
+    "supportedrear":   "Supportedrearing",
+    "unsupportedrear": "Unsupportedrearing",
+    "grooming":        "Grooming",
+}
+
+pred_df = pd.DataFrame({
+    'y_pred': label_encoder.inverse_transform(y_pred)
+}, index=pd.MultiIndex.from_tuples(test_frame_keys, names=['video_id', 'frame']))
+
+for vid in pred_df.index.get_level_values('video_id').unique():
+    vid_df = pred_df.loc[vid]
+    preds = vid_df['y_pred'].values
+
+    one_hot = np.zeros((len(preds), len(BEHAVIOR_NAMES)), dtype=int)
+    for i, cls_name in enumerate(preds):
+        col = CLASS_TO_COLUMN.get(cls_name, cls_name)
+        if col in BEHAVIOR_NAMES:
+            one_hot[i, BEHAVIOR_NAMES.index(col)] = 1
+
+    df = pd.DataFrame(one_hot, columns=BEHAVIOR_NAMES)
+    df.index.name = "frame"
+
+    out_path = os.path.join(PREDICTION_OUTPUT_FOLDER, f"{vid}.csv")
+    df.to_csv(out_path)
+    print(f"Saved: {out_path}  ({len(df)} frames)")
 
 results_path = f'pipeline_outputs/evaluation_{DATASET_VERSION}.txt'
 with open(results_path, 'w') as f:

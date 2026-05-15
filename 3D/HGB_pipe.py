@@ -9,7 +9,7 @@ from pipeline_code.model_tools import video_train_test_split
 from pipeline_code.filter_and_preprocess import collinearity_filter
 from sklearn.feature_selection import SelectKBest
 from sklearn.feature_selection import f_classif, mutual_info_classif
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, classification_report
 import matplotlib.pyplot as plt
 import seaborn as sns
 from pipeline_code.Shelf import Shelf
@@ -32,10 +32,52 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
 
+def apply_min_duration_filter(preds, min_duration=5, background_class="background"):
+    preds = np.array(preds, dtype=object)
+    i = 0
+    while i < len(preds):
+        cls = preds[i]
+        if cls == background_class:
+            i += 1
+            continue
+        j = i
+        while j < len(preds) and preds[j] == cls:
+            j += 1
+        run_length = j - i
+        if run_length < min_duration:
+            replacement = preds[i - 1] if i > 0 else background_class
+            preds[i:j] = replacement
+            if replacement == cls:
+                i = j
+        else:
+            i = j
+    return preds
+
+
+def apply_gap_fill(preds, max_gap=5, background_class="background"):
+    preds = np.array(preds, dtype=object)
+    i = 0
+    while i < len(preds):
+        if preds[i] != background_class:
+            i += 1
+            continue
+        j = i
+        while j < len(preds) and preds[j] == background_class:
+            j += 1
+        gap_length = j - i
+        if gap_length <= max_gap and i > 0 and j < len(preds):
+            before = preds[i - 1]
+            after  = preds[j]
+            if before == after and before != background_class:
+                preds[i:j] = before
+        i = j
+    return preds
+
+
 start = time.time()
 
 # Define dataset version (e.g., "actual", "actual_1", "actual_2")
-DATASET_VERSION = "hgb_3D_v2"
+DATASET_VERSION = "hgb_3D_v4"
 
 X_path = f"./pipeline_saved_processes/dataframes/X_3D.csv"
 X_filtered_path = f"./pipeline_saved_processes/dataframes/X_3D_filtered.csv"
@@ -158,9 +200,21 @@ if not os.path.isfile(model_path):
     best_params = grid_search.best_params_
     print("Best parameters:", best_params)
 
-    print("\nWith smoothing")
-    evaluate_model(model, X_train, y_train, X_test, y_test, min_frames=10, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_1.png")
+    evaluate_model(model, X_train, y_train, X_test, y_test, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_1.png")
 
+    y_pred_test = model.predict(X_test)
+    pred_df = pd.DataFrame({'y_true': y_test, 'y_pred': y_pred_test}, index=X_test.index)
+    all_true, all_smoothed = [], []
+    for vid in sorted(pred_df.index.get_level_values('video_id').unique()):
+        vid_df = pred_df.loc[vid]
+        smoothed = apply_min_duration_filter(vid_df['y_pred'].values)
+        smoothed = apply_gap_fill(smoothed)
+        all_true.extend(vid_df['y_true'].values)
+        all_smoothed.extend(smoothed)
+    all_true = np.array(all_true)
+    all_smoothed = np.array(all_smoothed)
+    print(f"\nTest macro F1 (smoothed): {f1_score(all_true, all_smoothed, average='macro', zero_division=0):.4f}")
+    print(classification_report(all_true, all_smoothed, zero_division=0))
 
     # Save model, class weights, and best parameters
     Shelf(X_train, X_test, model, model_path, model_weights=class_weights, best_params=best_params)
@@ -185,8 +239,21 @@ else:
 
     # Print performance evaluation for loaded model
     print("\n=== Performance Evaluation for Loaded Model ===")
-    print("\nWith smoothing")
-    evaluate_model(model, X_train, y_train, X_test, y_test, min_frames=10, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_1.png")
+    evaluate_model(model, X_train, y_train, X_test, y_test, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_1.png")
+
+    y_pred_test = model.predict(X_test)
+    pred_df = pd.DataFrame({'y_true': y_test, 'y_pred': y_pred_test}, index=X_test.index)
+    all_true, all_smoothed = [], []
+    for vid in sorted(pred_df.index.get_level_values('video_id').unique()):
+        vid_df = pred_df.loc[vid]
+        smoothed = apply_min_duration_filter(vid_df['y_pred'].values)
+        smoothed = apply_gap_fill(smoothed)
+        all_true.extend(vid_df['y_true'].values)
+        all_smoothed.extend(smoothed)
+    all_true = np.array(all_true)
+    all_smoothed = np.array(all_smoothed)
+    print(f"\nTest macro F1 (smoothed): {f1_score(all_true, all_smoothed, average='macro', zero_division=0):.4f}")
+    print(classification_report(all_true, all_smoothed, zero_division=0))
 
 
 # Ensure y_train and y_test are raveled for both branches
@@ -199,103 +266,38 @@ if 'sample_weights' not in locals():
     sample_weights = np.array([class_weights[y] for y in y_train])
 
 
-# Extract feature importances using  permutation_importance
-feature_importance_path = f'./pipeline_saved_processes/selected_features/HGB_{DATASET_VERSION}_selected_features.csv'
+# Save one-hot encoded predictions per video (same format as CNN_Transformer_OFT_predict.py)
+PREDICTION_OUTPUT_FOLDER = "./pipeline_outputs/predictions_hgb_3D"
+os.makedirs(PREDICTION_OUTPUT_FOLDER, exist_ok=True)
 
+BEHAVIOR_NAMES = ["background", "Supportedrearing", "Unsupportedrearing", "Grooming"]
+CLASS_TO_COLUMN = {
+    "background":      "background",
+    "supportedrear":   "Supportedrearing",
+    "unsupportedrear": "Unsupportedrearing",
+    "grooming":        "Grooming",
+}
 
-# Permutation Importance
-if os.path.isfile(feature_importance_path):
-    print("Loading existing permutation importance...")
-    feature_importance_df = pd.read_csv(feature_importance_path)
-    print(f"Features with importance > 0: {len(feature_importance_df)}")
-    print(feature_importance_df.head(20))
-else:
-    print("Calculating permutation importance...")
-    result = permutation_importance(
-     model,
-     X_train,
-     y_train,
-     n_repeats=5,
-     random_state=42,
-     n_jobs=2
-    )
-    importances = result.importances_mean
-    feature_names = X_train.columns
-    feature_importance_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
+pred_df_save = pd.DataFrame({'y_pred': y_pred_test}, index=X_test.index)
 
-    # Rank features by importance
-    feature_importance_df = feature_importance_df.sort_values(by='Importance', ascending=False)
+for vid in sorted(pred_df_save.index.get_level_values('video_id').unique()):
+    vid_df = pred_df_save.loc[vid]
+    preds = vid_df['y_pred'].values
+    frame_indices = vid_df.index.tolist()
 
-    # Filter features with importance > 0.0001
-    feature_importance_df = feature_importance_df[feature_importance_df['Importance'] > 0.0001]
-    print(f"Features with importance > 0.0001: {len(feature_importance_df)}")
-    print(feature_importance_df.head(20))
+    one_hot = np.zeros((len(preds), len(BEHAVIOR_NAMES)), dtype=int)
+    for i, cls_name in enumerate(preds):
+        col = CLASS_TO_COLUMN.get(cls_name, cls_name)
+        if col in BEHAVIOR_NAMES:
+            one_hot[i, BEHAVIOR_NAMES.index(col)] = 1
 
-    # Save selected features
-    feature_importance_df.to_csv(f'./pipeline_saved_processes/selected_features/HGB_{DATASET_VERSION}_selected_features.csv', index=False)
+    df = pd.DataFrame(one_hot, columns=BEHAVIOR_NAMES)
+    df.index.name = "frame"
 
+    out_path = os.path.join(PREDICTION_OUTPUT_FOLDER, f"{vid}.csv")
+    df.to_csv(out_path)
+    print(f"Saved: {out_path}  ({len(df)} frames)")
 
-# Plot top 300 feature importances
-top_n_plot = 300
-top_features_plot = feature_importance_df.head(top_n_plot)
-plt.figure(figsize=(10, 12))
-plt.barh(range(len(top_features_plot)), top_features_plot['Importance'], align='center')
-plt.yticks(range(len(top_features_plot)), top_features_plot['Feature'])
-plt.xlabel('Importance', fontsize=12)
-plt.ylabel('Feature', fontsize=12)
-model_name =  "Histogram Gradient Boosting"
-plt.title(f'Top {top_n_plot} {model_name} Feature Importances', fontsize=14, fontweight='bold')
-plt.gca().invert_yaxis()
-plt.tight_layout()
-plt.savefig(f'pipeline_outputs/feature_importances_HGB_{DATASET_VERSION}.png', dpi=300, bbox_inches='tight')
-plt.close()
-
-# Train second HGB model with only selected features
-print("\nSecond HGB model with selected features...")
-selected_features = feature_importance_df['Feature'].tolist()
-
-HGB_selected_path = f"pipeline_saved_processes/models/HGB_{DATASET_VERSION}_selected_features.pkl"
-
-if not os.path.isfile(HGB_selected_path):
-    # Filter X to keep only selected features
-    X_train_sel = X_train[selected_features]
-    X_test_sel = X_test[selected_features]
-
-    # Extract best hyperparameters from grid search (remove 'classifier__' prefix)
-    best_clf_params = {k.replace('classifier__', ''): v for k, v in best_params.items()}
-    print(f"Using best parameters from grid search: {best_clf_params}")
-
-    # Create pipeline with selected features using best hyperparameters
-    print(f"Training HGB with {len(selected_features)} selected features...")
-    pipeline_selected = Pipeline([
-     ('scaler', StandardScaler()),
-     ('classifier', HistGradientBoostingClassifier(
-         random_state=42,
-         early_stopping=False,
-         verbose=0,
-         **best_clf_params
-     ))
-    ])
-
-    pipeline_selected.fit(X_train_sel, y_train, classifier__sample_weight=sample_weights)
-
-    print("Evaluating model with selected features:")
-
-    print("\nWith smoothing")
-    evaluate_model(pipeline_selected, X_train_sel, y_train, X_test_sel, y_test, min_frames=10, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_2.png")
-
-    # Save the model
-    Shelf(X_train_sel, X_test_sel, pipeline_selected, HGB_selected_path, model_weights=class_weights)
-
-else:
-    # Load the second model with selected features
-    X_train_sel, X_test_sel, y_train_sel, y_test_sel, pipeline_selected, extra_sel = Shelf.load(X, y, HGB_selected_path, return_extra=True)
-
-    # Ensure y arrays are raveled
-    if not isinstance(y_train_sel, np.ndarray):
-        y_train_sel = y_train_sel.values.ravel()
-        y_test_sel = y_test_sel.values.ravel()
-
-    print("\n=== Performance Evaluation for Loaded Second Model (Selected Features) ===")
-    print("\nWith smoothing")
-    evaluate_model(pipeline_selected, X_train_sel, y_train_sel, X_test_sel, y_test_sel, min_frames=10, conf_matrix_path = f"pipeline_outputs/conf_matrix_{DATASET_VERSION}_model_2.png")
+elapsed = time.time() - start
+print(f"\nDone. Predictions saved to: {PREDICTION_OUTPUT_FOLDER}")
+print(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f} min)")

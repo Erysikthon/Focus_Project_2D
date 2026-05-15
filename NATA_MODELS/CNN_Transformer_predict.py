@@ -17,9 +17,12 @@ import numpy as np
 import pandas as pd
 import os
 import math
+import time
 from tqdm import tqdm
 import joblib
 from collections import defaultdict
+
+_start_time = time.time()
 
 
 # ============================================================================
@@ -273,9 +276,9 @@ if __name__ == "__main__":
     # ---- Configuration ----
     MODEL_PATH         = "./output/cnn_transformer/CNN_Transformer_lite_v24.pth"
     LABEL_ENCODER_PATH = "./output/cnn_transformer/label_encoder_lite_v24.pkl"
-    VIDEO_FOLDER       = "./videos/rotated_videos"
-    LABEL_FOLDER       = "./videos/labels"
-    OUTPUT_FOLDER      = "./output/cnn_transformer/predictions"
+    VIDEO_FOLDER       = "./data/rotated_videos"
+    LABEL_FOLDER       = "./data/labels"
+    OUTPUT_FOLDER      = "./output/transformer_3D/predictions"
 
     SEQUENCE_LENGTH = 30
     EVAL_STRIDE     = 5
@@ -348,4 +351,6 @@ if __name__ == "__main__":
         df.to_csv(out_path)
         print(f"Saved: {out_path}  ({len(df)} frames)")
 
+    elapsed = time.time() - _start_time
     print(f"\nDone. Predictions saved to: {OUTPUT_FOLDER}")
+    print(f"Total time: {elapsed:.1f}s ({elapsed/60:.1f} min)")

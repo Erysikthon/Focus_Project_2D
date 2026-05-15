@@ -9,7 +9,6 @@ Architecture:
 Input: Raw video frames from rotated_videos folder
 Output: Behavior classification per frame
 
-#v25: unsupported rearing x2.0 instead of x1.5
 """
 
 import torch
@@ -560,7 +559,7 @@ if __name__ == "__main__":
     start_time = time.time()
 
     # Configuration
-    DATASET_VERSION = "lite_v25"
+    DATASET_VERSION = "lite_v24"
     VIDEO_FOLDER    = "./data/rotated_videos"
     LABEL_FOLDER    = "./data/labels"
     MODEL_PATH      = f"./output/cnn_transformer/CNN_Transformer_{DATASET_VERSION}.pth"
@@ -792,7 +791,7 @@ if __name__ == "__main__":
 
     # CHANGE (v20): Boost underperforming classes before capping background.
     # Unsupportedrearing and Grooming consistently spill into background on test set.
-    CLASS_BOOSTS = {'Unsupportedrearing': 2.0, 'Grooming': 1.5}
+    CLASS_BOOSTS = {'Unsupportedrearing': 1.5, 'Grooming': 1.5}
     for cls_idx, cls_name in enumerate(behavior_names):
         if cls_name in CLASS_BOOSTS:
             class_weights[cls_idx] *= CLASS_BOOSTS[cls_name]

@@ -169,7 +169,8 @@ def features(features_collection : p3b.FeaturesCollection, embedding_length : li
                 ("bodycentre", "hipr")
                 ]
     for handle in distance:
-        features_collection.each.distance_between(handle[0], handle[1], dims=("x", "y", "z")).store()
+        features_collection.each.distance_between(handle[0], handle[1], dims=("x", "y")).store()
+        features_collection.each.distance_between(handle[0], handle[1], dims=("y", "z")).store()
     print("calculating heights...")
     height_p = [("headcentre"),
                 ("earl"),

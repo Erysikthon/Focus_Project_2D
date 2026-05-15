@@ -42,8 +42,26 @@ selector = SelectKBest(score_func=f_classif, k = "all")
 selector.fit(X, y)
 scores = selector.scores_
 norm_scores = scores / np.max(scores)
-feature_importance_dataframe = pd.DataFrame({"feature":pd.Series(X.columns),"score":pd.Series(norm_scores)})
-print(feature_importance_dataframe)
+# Create dataframe
+feature_importance_dataframe = pd.DataFrame({
+    "feature": X.columns,
+    "score": norm_scores
+})
 
-plt.figure(figsize = (10,6))
-sns.barplot
+# Sort and select top 20
+top20 = feature_importance_dataframe.sort_values(
+    by="score", ascending=False
+).head(20)
+
+# Plot
+plt.figure(figsize=(10, 6))
+sns.barplot(
+    data=top20,
+    x="score",
+    y="feature"
+)
+plt.title("20 best features by UVFS")
+plt.xlabel("Normalized Score")
+plt.ylabel("Feature")
+plt.tight_layout()
+plt.savefig("./pipeline_outputs/uvfs.png")

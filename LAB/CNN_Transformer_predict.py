@@ -196,6 +196,64 @@ class VideoSequenceDatasetNoLabels(Dataset):
 
 
 # ============================================================================
+# Post-processing
+# ============================================================================
+
+def apply_min_duration_filter(preds, min_duration=5, background_class=0):
+    """
+    Remove short predicted runs of non-background classes.
+    Any contiguous run shorter than min_duration frames is replaced by
+    the preceding class (or background if at the start).
+    When a replacement is made, the scan restarts from i so that the newly
+    patched-in class is also checked against min_duration.
+    """
+    preds = np.array(preds, dtype=int)
+    i = 0
+    while i < len(preds):
+        cls = preds[i]
+        if cls == background_class:
+            i += 1
+            continue
+        j = i
+        while j < len(preds) and preds[j] == cls:
+            j += 1
+        run_length = j - i
+        if run_length < min_duration:
+            replacement = preds[i - 1] if i > 0 else background_class
+            preds[i:j] = replacement
+            if replacement == cls:
+                i = j
+        else:
+            i = j
+    return preds
+
+
+def apply_gap_fill(preds, max_gap=5, background_class=0):
+    """
+    Fill short background gaps between identical behaviors.
+    If background appears for <= max_gap frames between the same behavior on both sides,
+    replace the background with that behavior.
+    """
+    preds = np.array(preds, dtype=int)
+    i = 0
+    while i < len(preds):
+        if preds[i] != background_class:
+            i += 1
+            continue
+        j = i
+        while j < len(preds) and preds[j] == background_class:
+            j += 1
+        gap_length = j - i
+        if gap_length <= max_gap and i > 0 and j < len(preds):
+            before = preds[i - 1]
+            after  = preds[j]
+            if before == after and before != background_class:
+                preds[i:j] = before
+        i = j
+    return preds
+
+
+# ============================================================================
 # Prediction
 # ============================================================================
 
@@ -250,7 +308,7 @@ if __name__ == "__main__":
     # ---- Configuration ----
     MODEL_PATH         = "./model/CNN_Transformer_lite_v24.pth"
     LABEL_ENCODER_PATH = "./model/label_encoder_lite_v24.pkl"
-    VIDEO_FOLDER       = "./data/rotated_videos"
+    VIDEO_FOLDER       = "./data/rotated_videos_maria"
     OUTPUT_FOLDER      = "./output/predictions"
 
     SEQUENCE_LENGTH = 30
@@ -310,6 +368,8 @@ if __name__ == "__main__":
 
     # Save one CSV per video
     for video_id, (frame_indices, preds) in per_video.items():
+        preds = apply_gap_fill(preds)
+        preds = apply_min_duration_filter(preds)
         one_hot = np.zeros((len(preds), len(behavior_names)), dtype=int)
         for i, cls_idx in enumerate(preds):
             one_hot[i, cls_idx] = 1

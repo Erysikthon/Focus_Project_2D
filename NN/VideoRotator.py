@@ -78,7 +78,9 @@ class VideoRotator:
 
                 cropped_frame = rotated_frame[self.crop_y0:self.crop_y1, self.crop_x0:self.crop_x1]
 
-                normalized_frame = cv2.normalize(cropped_frame, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+                p_low, p_high = np.percentile(cropped_frame, (1, 99))
+                clipped = np.clip(cropped_frame, p_low, p_high)
+                normalized_frame = cv2.normalize(clipped, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
 
                 self.out.write(normalized_frame)
                 pbar.update(1)

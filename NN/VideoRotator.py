@@ -91,7 +91,13 @@ class VideoRotator:
         self.out.release()
         cv2.destroyAllWindows()
 
-video_names = ["BehaviourCamera_2026-03-08T13_39_41_CRS10_5745.avi"]
+video_names = ["BehaviourCamera_2026-03-11T10_45_44_OFT2Splash_41.avi",
+               "BehaviourCamera_2026-03-11T11_11_14_OFT2Splash_38.avi",
+               "BehaviourCamera_2026-03-11T11_35_06_OFTSplash_50.avi",
+               "BehaviourCamera_2026-03-11T12_00_20_OFTSplash_51.avi",
+               "BehaviourCamera_2026-03-11T13_21_00_OFTSplash_46.avi",
+               "BehaviourCamera_2026-03-11T13_43_51_OFTSplash_47.avi",
+               ]
 
 print(video_names)
 

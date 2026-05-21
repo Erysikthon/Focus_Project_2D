@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import math
 
+
 class VideoRotator:
     
     def __init__(self, video_path : str, output_path : str, out_width : int, out_height : int):
@@ -88,12 +89,12 @@ class VideoRotator:
         self.out.release()
         cv2.destroyAllWindows()
 
-video_names = []
-for i in range(1, 22):
-    video_names.append(f"OFT_left_{i}.avi")
-video_names.pop(4)
+video_names = ["BehaviourCamera_2026-03-08T13_39_41_CRS10_5745.avi"]
+
 print(video_names)
 
 for v in video_names:
-    rotator = VideoRotator(f"./data_not_used/OFT/raw_videos/{v}", f"./data/rotated_videos_oft_left/{v[:-4]}" + ".mp4", 76, 142)
-    rotator.follow(pd.read_csv(f"./data_not_used/OFT/tracking/{v[:-4]}" + ".csv"), "mouse_top.mouse_top_0.bodycentre","mouse_top.mouse_top_0.neck")
+    rotator = VideoRotator(f"./OFT+Splash/raw_videos/{v}", f"./OFT+Splash/rotated_videos/{v[:-4]}" + ".mp4", 76, 142)
+    rotator.follow(pd.read_csv(f"./OFT+Splash/tracking/{v[:-4]}" + ".csv"), "mouse_top.mouse_top_0.bodycentre","mouse_top.mouse_top_0.neck")
+
+

@@ -95,7 +95,7 @@ def volume(feature,points : list[str], faces : list[list[int]]) -> p3b.FeaturesR
     Points are a list of defined points. The order of the points matters.
     The first point entered will be vertex number 0, the second 1 and so on.
     Faces are a list of list of int which define a triangular face.
-    The vertices that create a face must be called in counterclockwise sense in order to have a positive volume.
+    The vertices that create a face must be called counterclockwise in order to have a positive volume.
     ex.
     fc.volume(points = ["headcentre","nose","earl","earr"],faces = [[0,1,2],[0,2,3],[0,3,1],[1,3,2]])
     """
